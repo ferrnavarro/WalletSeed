@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/CardStatement.App/CardStatement.App.csproj" />
+    <Project Path="src/CardStatement.Core/CardStatement.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/CardStatement.Tests/CardStatement.Tests.csproj" />
+  </Folder>
+</Solution>

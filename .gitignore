@@ -1,0 +1,36 @@
+# Build artifacts
+bin/
+obj/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Secrets
+**/appsettings.Development.json
+**/appsettings.Local.json
+
+# macOS
+.DS_Store
+
+# Test output
+TestResults/
+*.coverage
+*.coveragexml
+coverage.*.xml
+
+# Generated Outputs
+result*.json
+response*.json
+
+# PDF Statements
+*.pdf
+samples/*.pdf
+
+# Local agent metadata
+.antigravitycli/
+.claude/
+
