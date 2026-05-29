@@ -33,6 +33,12 @@ samples/*.pdf
 # Local agent metadata
 .antigravitycli/
 .claude/
+.agents/
+.gemini/
+.opencode/
+.github/
+
+.specify/
 
 # Frontend
 frontend/node_modules/

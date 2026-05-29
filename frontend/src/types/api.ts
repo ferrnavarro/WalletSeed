@@ -63,6 +63,10 @@ export interface ExtractedStatementResponse {
   reconciliationStatus: ReconciliationStatus;
   needsReviewCount: number;
   unmappedCards: string[];
+  bank?: {
+    id: string;
+    displayName: string;
+  };
 }
 
 export interface ExtractionErrorResponse {

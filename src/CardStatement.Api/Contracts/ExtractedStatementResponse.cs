@@ -8,5 +8,7 @@ public sealed record ExtractedStatementResponse(
     StatementTotalsDto Totals,
     ReconciliationStatus ReconciliationStatus,
     int NeedsReviewCount,
-    IReadOnlyList<string> UnmappedCards
+    IReadOnlyList<string> UnmappedCards,
+    BankInfoDto Bank
 );
+

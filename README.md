@@ -9,6 +9,7 @@ A **.NET 10 console application (Proof of Concept)** that parses text-based **BA
 3. **LLM Expense Categorization**: Passes purchase descriptions to an LLM (such as OpenAI or compatible local models like Gemma and DeepSeek on LM Studio) to classify them against a Category API taxonomy.
 4. **Cardholder Label Mapping**: Resolves cardholders to descriptive tags using a card-last-4-to-label-id map configured locally and validated against a Labels API.
 5. **Reconciliation Engine**: Reconciles calculated transaction sums against printed section subtotals and grand totals to identify and flag discrepancies (`NeedsReview`).
+6. **Multi-Bank Core Seam**: Integrates multiple banking pipelines through a decoupled registration registry and resolution resolver. Auto-detects statement layouts in real time, routes requests to isolated bank parser implementations, and appends bank metadata to outputs. Developers can easily contribute new bank support by following the [Bank-Author Onboarding Guide](specs/002-multi-bank-support/quickstart.md#b-add-a-new-bank-in-15-minutes).
 
 ---
 

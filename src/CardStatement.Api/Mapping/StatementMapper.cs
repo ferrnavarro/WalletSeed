@@ -1,11 +1,12 @@
 using CardStatement.Core.Models;
 using CardStatement.Api.Contracts;
+using CardStatement.Core.Banks;
 
 namespace CardStatement.Api.Mapping;
 
 public static class StatementMapper
 {
-    public static ExtractedStatementResponse ToResponse(Statement statement)
+    public static ExtractedStatementResponse ToResponse(Statement statement, BankInfo bank)
     {
         var headerDto = new StatementHeaderDto(
             statement.CardType ?? string.Empty,
@@ -95,7 +96,8 @@ public static class StatementMapper
             statementTotals,
             statement.ReconciliationStatus,
             totalNeedsReviewCount,
-            Array.Empty<string>()
+            Array.Empty<string>(),
+            new BankInfoDto(bank.Id, bank.DisplayName)
         );
     }
 }

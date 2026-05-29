@@ -21,4 +21,10 @@
     <ProjectReference Include="..\..\src\CardStatement.Api\CardStatement.Api.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <None Update="Fixtures\Pdfs\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
 </Project>

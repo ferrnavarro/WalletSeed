@@ -4,9 +4,8 @@ using CardStatement.Core.Apis;
 using CardStatement.Core.Categorization;
 using CardStatement.Core.Labels;
 using CardStatement.Core.Models;
-using CardStatement.Core.Parsing;
-using CardStatement.Core.Pdf;
-using CardStatement.Core.Reconciliation;
+using CardStatement.Core.Registration;
+using CardStatement.Core.Banks.Bac;
 using CardStatement.Core.Result;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -30,7 +29,7 @@ public static class CompositionRoot
                     opt.Map[k] = id;
             }
         });
-        services.Configure<ParsingOptions>(configuration.GetSection("Parsing"));
+        services.Configure<BacParsingOptions>(configuration.GetSection("Parsing"));
 
         services.AddTransient<BearerAuthHandler>();
 
@@ -48,10 +47,8 @@ public static class CompositionRoot
             })
             .AddHttpMessageHandler<BearerAuthHandler>();
 
-        services.AddSingleton<IPdfExtractor, PdfPigExtractor>();
-        services.AddSingleton<IStatementParser>(sp =>
-            new StatementParser(sp.GetRequiredService<IOptions<ParsingOptions>>().Value));
-        services.AddSingleton<IReconciler, Reconciler>();
+        services.AddCardStatementCore();
+        services.AddBacBank();
 
         services.AddSingleton<ILlmClient>(sp =>
         {

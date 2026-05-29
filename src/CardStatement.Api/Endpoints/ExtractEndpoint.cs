@@ -15,7 +15,7 @@ public static class ExtractEndpoint
         app.MapPost("/api/statements/extract", async (
             IFormFile file,
             IPdfExtractor pdf,
-            IStatementParser parser,
+            IBankResolver resolver,
             IReconciler reconciler,
             IConfiguration config,
             ILogger<Program> log) =>
@@ -75,16 +75,8 @@ public static class ExtractEndpoint
                     throw new NoTextExtractableException("No text words found in PDF");
                 }
 
-                // Parse statement
-                CardStatement.Core.Models.Statement statement;
-                try
-                {
-                    statement = parser.Parse(words);
-                }
-                catch (Exception parseEx)
-                {
-                    throw new UnrecognizedLayoutException("Failed to parse statement layout", parseEx);
-                }
+                // Resolve statement and bank
+                var (bank, statement) = resolver.Resolve(words);
                 
                 // US3: Check if unrecognized layout (no cardholder sections and no transactions)
                 if (statement.Sections == null || statement.Sections.Count == 0 || !statement.Sections.SelectMany(s => s.Transactions).Any())
@@ -93,8 +85,9 @@ public static class ExtractEndpoint
                 }
 
                 var reconciled = reconciler.Reconcile(statement);
-                var response = StatementMapper.ToResponse(reconciled);
+                var response = StatementMapper.ToResponse(reconciled, bank);
 
+                log.LogInformation("Bank selected: {BankId}", bank.Id);
                 log.LogInformation("Successfully processed statement. Pages: {PageCount}, Sections: {SectionCount}", 
                     reconciled.PageCount, reconciled.Sections.Count);
 
