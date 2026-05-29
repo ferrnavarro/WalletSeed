@@ -2,8 +2,10 @@
   <Folder Name="/src/">
     <Project Path="src/CardStatement.App/CardStatement.App.csproj" />
     <Project Path="src/CardStatement.Core/CardStatement.Core.csproj" />
+    <Project Path="src/CardStatement.Api/CardStatement.Api.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/CardStatement.Tests/CardStatement.Tests.csproj" />
+    <Project Path="tests/CardStatement.Api.Tests/CardStatement.Api.Tests.csproj" />
   </Folder>
 </Solution>

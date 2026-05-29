@@ -94,6 +94,27 @@ dotnet run --project src/CardStatement.App -- <path-to-pdf> --dump-rows --page 1
 dotnet run --project src/CardStatement.App -- <path-to-pdf> --dump-parsed
 ```
 
+## Web Application (Vite + React + Minimal API)
+
+A modern, responsive web application for extracting credit card statement PDFs (BAC Credomatic) and displaying transactions, totals, and reconciliation warnings in real-time.
+
+Detailed documentation is available at [quickstart.md](specs/001-pdf-extract-web/quickstart.md).
+
+### Running Locally
+
+1. **Start the backend API**:
+   ```bash
+   dotnet run --project src/CardStatement.Api
+   ```
+   The API will listen at `http://localhost:5080`.
+
+2. **Start the frontend**:
+   ```bash
+   cd frontend
+   pnpm dev
+   ```
+   The Vite dev server will run at `http://localhost:5173`.
+
 ---
 
 ## Running Tests

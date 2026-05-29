@@ -34,3 +34,12 @@ samples/*.pdf
 .antigravitycli/
 .claude/
 
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env.local
+frontend/coverage/
+
+# Allow specific PDF test stubs
+!tests/CardStatement.Api.Tests/Fixtures/Errors/*.pdf
+
