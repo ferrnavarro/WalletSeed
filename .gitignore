@@ -31,7 +31,6 @@ response*.json
 samples/*.pdf
 
 # Local agent metadata
-.antigravitycli/
 .claude/
 .agents/
 .gemini/
