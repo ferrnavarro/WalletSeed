@@ -52,7 +52,10 @@ public sealed class WalletImportService
         var reconciled = _reconciler.Reconcile(statement);
         var issueDate = reconciled.Period.IssueDate;
         var cutoffDate = reconciled.Period.CutoffDate;
-        var window = new StatementWindowDto(issueDate.AddDays(-5), cutoffDate.AddDays(5), issueDate, cutoffDate);
+        var transactions = reconciled.Sections.SelectMany(s => s.Transactions).ToList();
+        var oldestTxDate = transactions.Count > 0 ? transactions.Min(tx => tx.TransactionDate) : issueDate;
+        var newestTxDate = transactions.Count > 0 ? transactions.Max(tx => tx.TransactionDate) : cutoffDate;
+        var window = new StatementWindowDto(oldestTxDate.AddDays(-5), newestTxDate.AddDays(5), issueDate, cutoffDate);
 
         var accountsTask = _walletClient.ListAccountsAsync(ct);
         var categoriesTask = _walletClient.ListCategoriesAsync(ct);
