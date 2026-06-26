@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import UploadForm from '../components/UploadForm';
 import WalletAccountPicker from '../components/WalletAccountPicker';
 import WalletErrorBanner from '../components/WalletErrorBanner';
-import ComparisonTable from '../components/ComparisonTable';
 import CategoryDropdown from '../components/CategoryDropdown';
 import SubmitOutcomeList from '../components/SubmitOutcomeList';
 import PerRowPreview from '../components/PerRowPreview';
@@ -179,6 +178,35 @@ export default function WalletImportPage() {
 
   const canSubmit = Boolean(state.comparison) && state.comparison!.pdfRows.some((row) => state.selectedRows[row.index]) && state.comparison!.pdfRows.filter((row) => state.selectedRows[row.index]).every((row) => (state.categoryByIndex[row.index] ?? '').length > 0);
 
+  // Group PDF rows by cardholder section
+  interface GroupedPdfSection {
+    cardLast4: string;
+    rawName: string;
+    rows: Array<(typeof state.comparison.pdfRows)[number]>;
+  }
+
+  const groupedSections: GroupedPdfSection[] = [];
+  if (state.comparison) {
+    for (const row of state.comparison.pdfRows) {
+      let section = groupedSections.find(
+        (s) => s.cardLast4 === row.cardLast4 && s.rawName === row.cardholderSectionRawName
+      );
+      if (!section) {
+        section = {
+          cardLast4: row.cardLast4,
+          rawName: row.cardholderSectionRawName,
+          rows: [],
+        };
+        groupedSections.push(section);
+      }
+      section.rows.push(row);
+    }
+  }
+
+  const allCategories = state.comparison?.categories && state.comparison.categories.length > 0 
+    ? state.comparison.categories 
+    : state.categories;
+
   return (
     <section className="glass-card wallet-page">
       <h2>Wallet Import</h2>
@@ -202,37 +230,175 @@ export default function WalletImportPage() {
 
       {state.comparison ? (
         <>
-          <ComparisonTable response={state.comparison} />
-          <div className="comparison-card" style={{ marginTop: '1rem' }}>
-            <h3>Select rows to import</h3>
-            <div className="form-description">Selected: {state.comparison.pdfRows.filter((row) => state.selectedRows[row.index]).length}</div>
-            {state.comparison.pdfRows.map((row) => (
-              <div key={`row-select-${row.index}`} className="comparison-card" style={{ marginBottom: '0.75rem' }}>
-                <div className="comparison-card__header">
-                  <strong>Row #{row.index} • {row.description}</strong>
-                  <label>
-                    <input type="checkbox" checked={Boolean(state.selectedRows[row.index])} onChange={() => toggleSelection(row.index)} />
-                    <span style={{ marginLeft: '0.5rem' }}>Select</span>
-                  </label>
+          <div style={{ marginTop: '2rem' }}>
+            <h3 style={{ fontFamily: 'var(--font-family-heading)', fontSize: '1.5rem', marginBottom: '0.5rem' }}>Select rows to import</h3>
+            <div className="form-description" style={{ marginBottom: '1.5rem' }}>
+              Selected: {state.comparison.pdfRows.filter((row) => state.selectedRows[row.index]).length}
+            </div>
+
+            {groupedSections.map((section) => (
+              <div key={`${section.rawName}-${section.cardLast4}`} className="glass-card cardholder-section animate-fade-in" style={{ marginTop: '1.5rem', padding: '1.5rem 2rem' }}>
+                <div className="section-header" style={{ marginBottom: '1rem' }}>
+                  <h3>Card last 4: {section.cardLast4}</h3>
+                  <span className="holder-name">{section.rawName}</span>
                 </div>
-                <div className="form-description">Import this transaction to Wallet</div>
-                <div>{row.date} • {row.signedAmount.toFixed(2)}</div>
-                {state.selectedRows[row.index] ? (
-                  <>
-                    <CategoryDropdown
-                      categories={state.comparison.categories.length > 0 ? state.comparison.categories : state.categories}
-                      value={state.categoryByIndex[row.index] ?? null}
-                      onChange={(categoryId) => handleCategoryChange(row.index, categoryId)}
-                      label={`Category for row ${row.index}`}
-                    />
-                    {((state.categoryByIndex[row.index] ?? '').length === 0) ? <div className="form-description">Needs category</div> : null}
-                    <PerRowPreview row={row} accountName={state.comparison.account.name} categoryName={state.categories.find((category) => category.id === state.categoryByIndex[row.index])?.name ?? null} />
-                  </>
-                ) : null}
+
+                <div className="table-responsive">
+                  <table className="transactions-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: '100px' }}>Select</th>
+                        <th style={{ width: '120px' }}>Date</th>
+                        <th>Description</th>
+                        <th className="col-amount-header" style={{ width: '120px' }}>Amount</th>
+                        <th style={{ width: '180px' }}>Match Status</th>
+                        <th style={{ width: '220px' }}>Category</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {section.rows.map((row) => {
+                        const isSelected = Boolean(state.selectedRows[row.index]);
+                        const isIncome = row.signedAmount > 0;
+                        const selectedCategoryName = allCategories.find((c) => c.id === state.categoryByIndex[row.index])?.name ?? null;
+
+                        return (
+                          <tr key={row.index} className={`transaction-row ${row.currencyMismatch ? 'needs-review' : ''}`}>
+                            <td>
+                              <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+                                <input
+                                  type="checkbox"
+                                  checked={isSelected}
+                                  onChange={() => toggleSelection(row.index)}
+                                />
+                                <span style={{ marginLeft: '0.5rem' }}>Select</span>
+                              </label>
+                            </td>
+                            <td className="col-date">{row.date}</td>
+                            <td className="col-desc">
+                              <span style={{ fontWeight: 600 }}>{row.description}</span>
+                              {row.counterParty && (
+                                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-dim)', marginTop: '0.25rem' }}>
+                                  Merchant: {row.counterParty}
+                                </div>
+                              )}
+                            </td>
+                            <td className="col-amount">
+                              <span className={`direction-badge direction--${isIncome ? 'income' : 'expense'}`}>
+                                {isIncome ? '+' : '-'}${Math.abs(row.signedAmount).toFixed(2)}
+                              </span>
+                            </td>
+                            <td>
+                              {row.matchedWalletRecordIds.length > 0 ? (
+                                <span className="badge">
+                                  Matches W-{row.matchedWalletRecordIds.join(', ')}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>No match</span>
+                              )}
+                              {row.currencyMismatch && (
+                                <div style={{ color: 'var(--mismatch)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                                  ⚠️ Currency Mismatch ({row.currency})
+                                </div>
+                              )}
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                {isSelected ? (
+                                  <>
+                                    <CategoryDropdown
+                                      categories={allCategories}
+                                      value={state.categoryByIndex[row.index] ?? null}
+                                      onChange={(categoryId) => handleCategoryChange(row.index, categoryId)}
+                                      label={`Category for row ${row.index}`}
+                                    />
+                                    {((state.categoryByIndex[row.index] ?? '').length === 0) ? (
+                                      <div className="form-description" style={{ color: 'var(--mismatch)', margin: 0, fontSize: '0.8rem' }}>
+                                        Needs category
+                                      </div>
+                                    ) : null}
+                                    <PerRowPreview
+                                      row={row}
+                                      accountName={state.comparison.account.name}
+                                      categoryName={selectedCategoryName}
+                                    />
+                                  </>
+                                ) : (
+                                  <span style={{ color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>Not imported</span>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             ))}
           </div>
-          <div className="comparison-card" style={{ marginTop: '1rem' }}>
+
+          {/* Collapsible section for existing Wallet records */}
+          <details className="glass-card cardholder-section animate-fade-in" style={{ marginTop: '2rem', padding: '1.5rem 2rem' }}>
+            <summary style={{ fontFamily: 'var(--font-family-heading)', fontSize: '1.25rem', fontWeight: 600, cursor: 'pointer', outline: 'none' }}>
+              Existing Wallet Records in this Period ({state.comparison.walletRows.length})
+            </summary>
+            <div style={{ marginTop: '1.5rem' }}>
+              {state.comparison.walletRows.length === 0 ? (
+                <p className="form-description">No existing records in this period.</p>
+              ) : (
+                <div className="table-responsive">
+                  <table className="transactions-table">
+                    <thead>
+                      <tr>
+                        <th style={{ width: '120px' }}>ID</th>
+                        <th style={{ width: '120px' }}>Date</th>
+                        <th>Description / Note</th>
+                        <th className="col-amount-header" style={{ width: '120px' }}>Amount</th>
+                        <th style={{ width: '180px' }}>Category</th>
+                        <th style={{ width: '180px' }}>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {state.comparison.walletRows.map((wRow) => {
+                        const isIncome = wRow.signedAmount > 0;
+                        return (
+                          <tr key={wRow.id} className="transaction-row">
+                            <td className="col-ref">W-{wRow.id}</td>
+                            <td className="col-date">{wRow.date}</td>
+                            <td className="col-desc">
+                              <span style={{ fontWeight: 600 }}>{wRow.note ?? '—'}</span>
+                              {wRow.counterParty && (
+                                <div style={{ fontSize: '0.8rem', color: 'var(--color-text-dim)', marginTop: '0.25rem' }}>
+                                  Merchant: {wRow.counterParty}
+                                </div>
+                              )}
+                            </td>
+                            <td className="col-amount">
+                              <span className={`direction-badge direction--${isIncome ? 'income' : 'expense'}`}>
+                                {isIncome ? '+' : '-'}${Math.abs(wRow.signedAmount).toFixed(2)}
+                              </span>
+                            </td>
+                            <td>{wRow.categoryName ?? '—'}</td>
+                            <td>
+                              {wRow.claimedByPdfIndices.length > 0 ? (
+                                <span className="badge">
+                                  Claimed by row #{wRow.claimedByPdfIndices.join(', ')}
+                                </span>
+                              ) : (
+                                <span style={{ color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>Unclaimed</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </details>
+
+          <div className="comparison-card" style={{ marginTop: '2rem' }}>
             <button className="btn btn-primary" disabled={!canSubmit || state.submitting} onClick={handleSubmit}>
               {state.submitting ? 'Submitting…' : 'Import to Wallet'}
             </button>
