@@ -81,4 +81,98 @@ describe('WalletImportPage selection and preview flow', () => {
     expect(screen.getByText('categoryId → Food')).toBeInTheDocument();
     expect(screen.getByText('labelIds → Coffee labels')).toBeInTheDocument();
   });
+
+  it('allows selecting all rows per card and collapsing sections', async () => {
+    vi.mocked(walletClient.compare).mockResolvedValue({
+      ok: true,
+      data: {
+        window: { from: '2026-06-01', to: '2026-06-30', issueDate: '2026-06-01', cutoffDate: '2026-06-30' },
+        account: { id: 'acct-1', name: 'Main Checking', currencyCode: 'USD', accountType: 'checking' },
+        categories: [{ id: 'cat-1', name: 'Food', color: null }],
+        pdfRows: [
+          {
+            index: 0,
+            date: '2026-06-10',
+            signedAmount: -12.5,
+            currency: 'USD',
+            description: 'Coffee',
+            counterParty: null,
+            cardholderSectionRawName: 'MAIN',
+            cardLast4: '1234',
+            matchedWalletRecordIds: [],
+            defaultSelected: false,
+            currencyMismatch: false,
+            previewLabelIds: [],
+            previewLabelNames: [],
+          },
+          {
+            index: 1,
+            date: '2026-06-11',
+            signedAmount: -20.0,
+            currency: 'USD',
+            description: 'Lunch',
+            counterParty: null,
+            cardholderSectionRawName: 'MAIN',
+            cardLast4: '1234',
+            matchedWalletRecordIds: [],
+            defaultSelected: false,
+            currencyMismatch: false,
+            previewLabelIds: [],
+            previewLabelNames: [],
+          },
+        ],
+        walletRows: [],
+        unmappedSections: [],
+      },
+    });
+
+    render(<WalletImportPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /main checking/i })).toBeInTheDocument();
+    });
+
+    await userEvent.selectOptions(screen.getByLabelText(/wallet account/i), 'acct-1');
+
+    const file = new File(['dummy pdf'], 'statement.pdf', { type: 'application/pdf' });
+    await userEvent.upload(screen.getByLabelText(/choose pdf statement/i), file);
+    await userEvent.click(screen.getByRole('button', { name: /extract statement/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Coffee')).toBeInTheDocument();
+      expect(screen.getByText('Lunch')).toBeInTheDocument();
+    });
+
+    // Check that we can collapse and expand the card section
+    expect(screen.queryByRole('table')).toBeInTheDocument();
+    const sectionHeader = screen.getByText('Card last 4: 1234');
+    
+    // Click header to collapse
+    await userEvent.click(sectionHeader);
+    expect(screen.queryByRole('table')).not.toBeInTheDocument();
+
+    // Click header again to expand
+    await userEvent.click(sectionHeader);
+    expect(screen.queryByRole('table')).toBeInTheDocument();
+
+    // Test Select All checkbox
+    const selectAllCheckbox = screen.getByLabelText('Toggle all rows');
+    expect(selectAllCheckbox).not.toBeChecked();
+
+    const rowCheckboxes = screen.getAllByLabelText('Select');
+    expect(rowCheckboxes[0]).not.toBeChecked();
+    expect(rowCheckboxes[1]).not.toBeChecked();
+
+    // Click Select All
+    await userEvent.click(selectAllCheckbox);
+    expect(selectAllCheckbox).toBeChecked();
+    expect(rowCheckboxes[0]).toBeChecked();
+    expect(rowCheckboxes[1]).toBeChecked();
+
+    // Click Select All again to deselect
+    await userEvent.click(selectAllCheckbox);
+    expect(selectAllCheckbox).not.toBeChecked();
+    expect(rowCheckboxes[0]).not.toBeChecked();
+    expect(rowCheckboxes[1]).not.toBeChecked();
+  });
 });
