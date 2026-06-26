@@ -28,14 +28,32 @@ public sealed class WalletApiClient : IWalletApiClient
     public async Task<IReadOnlyList<WalletAccount>> ListAccountsAsync(CancellationToken ct = default)
     {
         EnsureConfigured();
-        var response = await SendAsync(HttpMethod.Get, "accounts", ct);
-        var document = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
-        return document?.RootElement.GetProperty("accounts").EnumerateArray().Select(a => new WalletAccount(
-            a.GetProperty("id").GetString() ?? string.Empty,
-            a.GetProperty("name").GetString() ?? string.Empty,
-            ReadCurrencyCode(a),
-            a.GetProperty("accountType").GetString() ?? string.Empty,
-            a.TryGetProperty("archived", out var archived) && archived.GetBoolean())).ToList() ?? [];
+        var accounts = new List<WalletAccount>();
+        var offset = 0;
+
+        while (true)
+        {
+            var requestUri = $"accounts?limit=200&offset={offset}";
+            var response = await SendAsync(HttpMethod.Get, requestUri, ct);
+            var document = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
+            var items = document?.RootElement.GetProperty("accounts").EnumerateArray().Select(a => new WalletAccount(
+                a.GetProperty("id").GetString() ?? string.Empty,
+                a.GetProperty("name").GetString() ?? string.Empty,
+                ReadCurrencyCode(a),
+                a.GetProperty("accountType").GetString() ?? string.Empty,
+                a.TryGetProperty("archived", out var archived) && archived.GetBoolean())).ToList() ?? [];
+            accounts.AddRange(items);
+
+            int? nextOffset = document?.RootElement.TryGetProperty("nextOffset", out var next) == true ? next.GetInt32() : null;
+            if (nextOffset is null)
+            {
+                break;
+            }
+
+            offset = nextOffset.Value;
+        }
+
+        return accounts;
     }
 
     public async Task<IReadOnlyList<WalletCategory>> ListCategoriesAsync(CancellationToken ct = default)
@@ -113,10 +131,71 @@ public sealed class WalletApiClient : IWalletApiClient
     public async Task<IReadOnlyList<WalletCreateOutcome>> CreateRecordsAsync(IReadOnlyList<WalletCreateRequest> rows, CancellationToken ct = default)
     {
         EnsureConfigured();
-        var payload = new { records = rows.Select(r => new { accountId = r.AccountId, recordDate = r.RecordDate.ToString("O"), amount = new { value = r.SignedAmount, currencyCode = r.CurrencyCode }, paymentType = r.PaymentType, categoryId = r.CategoryId, labelIds = r.LabelIds, note = r.Note, counterParty = r.CounterParty }).ToList() };
+        var payload = rows.Select(r =>
+        {
+            var amount = new Dictionary<string, object?>
+            {
+                ["value"] = r.SignedAmount
+            };
+
+            if (!string.IsNullOrWhiteSpace(r.CurrencyCode))
+            {
+                amount["currencyCode"] = r.CurrencyCode;
+            }
+
+            var item = new Dictionary<string, object?>
+            {
+                ["accountId"] = r.AccountId,
+                ["recordDate"] = r.RecordDate.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                ["amount"] = amount,
+                ["paymentType"] = r.PaymentType,
+                ["categoryId"] = r.CategoryId
+            };
+
+            if (r.LabelIds.Count > 0)
+            {
+                item["labelIds"] = r.LabelIds;
+            }
+
+            if (!string.IsNullOrWhiteSpace(r.Note))
+            {
+                item["note"] = r.Note;
+            }
+
+            if (!string.IsNullOrWhiteSpace(r.CounterParty))
+            {
+                item["counterParty"] = r.CounterParty;
+            }
+
+            return item;
+        }).ToList();
+
         var response = await SendAsync(HttpMethod.Post, "records", ct, payload);
         var document = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
-        return document?.RootElement.GetProperty("outcomes").EnumerateArray().Select((item, index) => new WalletCreateOutcome(index, item.GetProperty("success").GetBoolean(), item.TryGetProperty("id", out var id) ? id.GetString() : null, item.TryGetProperty("error", out var error) ? error.GetString() : null)).ToList() ?? [];
+
+        JsonElement resultsElement;
+        if (document?.RootElement.TryGetProperty("results", out resultsElement) == true)
+        {
+            return resultsElement.EnumerateArray().Select((item, index) =>
+            {
+                var inputIndex = item.TryGetProperty("inputIndex", out var inputIndexElement) && inputIndexElement.ValueKind == JsonValueKind.Number
+                    ? inputIndexElement.GetInt32()
+                    : index;
+
+                return new WalletCreateOutcome(
+                    inputIndex,
+                    item.GetProperty("success").GetBoolean(),
+                    item.TryGetProperty("id", out var id) ? id.GetString() : null,
+                    item.TryGetProperty("error", out var error) ? error.GetString() : null);
+            }).ToList();
+        }
+
+        if (document?.RootElement.TryGetProperty("outcomes", out var outcomesElement) == true)
+        {
+            return outcomesElement.EnumerateArray().Select((item, index) => new WalletCreateOutcome(index, item.GetProperty("success").GetBoolean(), item.TryGetProperty("id", out var id) ? id.GetString() : null, item.TryGetProperty("error", out var error) ? error.GetString() : null)).ToList();
+        }
+
+        return [];
     }
 
     private void EnsureConfigured()
