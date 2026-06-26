@@ -77,14 +77,19 @@ public sealed class WalletApiClient : IWalletApiClient
             var requestUri = $"records?accountId={Uri.EscapeDataString(accountId)}&recordDate=gte.{from:yyyy-MM-dd}&recordDate=lt.{to.AddDays(1):yyyy-MM-dd}&limit=200&offset={offset}";
             var response = await SendAsync(HttpMethod.Get, requestUri, ct);
             var document = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
-            var items = document?.RootElement.GetProperty("records").EnumerateArray().Select(r => new WalletRecord(
-                r.GetProperty("id").GetString() ?? string.Empty,
-                DateOnly.Parse(r.GetProperty("recordDate").GetString() ?? string.Empty),
-                r.GetProperty("amount").GetProperty("value").GetDecimal(),
-                r.GetProperty("amount").GetProperty("currencyCode").GetString() ?? string.Empty,
-                r.TryGetProperty("note", out var note) ? note.GetString() : null,
-                r.TryGetProperty("counterParty", out var counterParty) ? counterParty.GetString() : null,
-                r.TryGetProperty("categoryName", out var categoryName) ? categoryName.GetString() : null)).ToList() ?? [];
+            var items = document?.RootElement.GetProperty("records").EnumerateArray().Select(r =>
+            {
+                var dateStr = r.GetProperty("recordDate").GetString() ?? string.Empty;
+                var datePart = dateStr.Length >= 10 ? dateStr[..10] : dateStr;
+                return new WalletRecord(
+                    r.GetProperty("id").GetString() ?? string.Empty,
+                    DateOnly.Parse(datePart),
+                    r.GetProperty("amount").GetProperty("value").GetDecimal(),
+                    r.GetProperty("amount").GetProperty("currencyCode").GetString() ?? string.Empty,
+                    r.TryGetProperty("note", out var note) ? note.GetString() : null,
+                    r.TryGetProperty("counterParty", out var counterParty) ? counterParty.GetString() : null,
+                    r.TryGetProperty("categoryName", out var categoryName) ? categoryName.GetString() : null);
+            }).ToList() ?? [];
             records.AddRange(items);
 
             int? nextOffset = document?.RootElement.TryGetProperty("nextOffset", out var next) == true ? next.GetInt32() : null;

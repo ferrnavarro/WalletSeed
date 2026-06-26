@@ -70,6 +70,7 @@ public static class WalletImportEndpoint
             }
             catch (Exception ex)
             {
+                log.LogError(ex, "Compare endpoint failed with exception");
                 var result = ExtractionFailureMapper.TryMapKnown(ex);
                 if (result is not null)
                 {
