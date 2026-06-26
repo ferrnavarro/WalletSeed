@@ -59,12 +59,29 @@ public sealed class WalletApiClient : IWalletApiClient
     public async Task<IReadOnlyList<WalletCategory>> ListCategoriesAsync(CancellationToken ct = default)
     {
         EnsureConfigured();
-        var response = await SendAsync(HttpMethod.Get, "categories", ct);
-        var document = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
-        return document?.RootElement.GetProperty("categories").EnumerateArray().Select(c => new WalletCategory(
-            c.GetProperty("id").GetString() ?? string.Empty,
-            c.GetProperty("name").GetString() ?? string.Empty,
-            c.TryGetProperty("color", out var color) ? color.GetString() : null)).ToList() ?? [];
+        var categories = new List<WalletCategory>();
+        var offset = 0;
+        while (true)
+        {
+            var requestUri = $"categories?limit=200&offset={offset}";
+            var response = await SendAsync(HttpMethod.Get, requestUri, ct);
+            var document = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
+            var items = document?.RootElement.GetProperty("categories").EnumerateArray().Select(c => new WalletCategory(
+                c.GetProperty("id").GetString() ?? string.Empty,
+                c.GetProperty("name").GetString() ?? string.Empty,
+                c.TryGetProperty("color", out var color) ? color.GetString() : null)).ToList() ?? [];
+            categories.AddRange(items);
+
+            int? nextOffset = document?.RootElement.TryGetProperty("nextOffset", out var next) == true ? next.GetInt32() : null;
+            if (nextOffset is null)
+            {
+                break;
+            }
+
+            offset = nextOffset.Value;
+        }
+
+        return categories;
     }
 
     public async Task<IReadOnlyList<WalletRecord>> ListRecordsAsync(string accountId, DateOnly from, DateOnly to, CancellationToken ct = default)

@@ -43,7 +43,7 @@ public class WalletAccountsAndCategoriesEndpointTests : IClassFixture<WebApiFact
         var response = await client.GetAsync("/api/wallet/accounts");
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(new Uri("https://wallet.example/wallet/v1/api/accounts"), seenUri);
+        Assert.Equal(new Uri("https://wallet.example/wallet/v1/api/accounts?limit=200&offset=0"), seenUri);
     }
 
     [Fact]
