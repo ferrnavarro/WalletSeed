@@ -225,6 +225,26 @@ export default function WalletImportPage() {
     });
   };
 
+  const getCommonCategoryForSection = (section: GroupedPdfSection): string | null => {
+    if (section.rows.length === 0) return null;
+    const firstCat = state.categoryByIndex[section.rows[0].index] ?? '';
+    const allSame = section.rows.every((row) => (state.categoryByIndex[row.index] ?? '') === firstCat);
+    return allSame ? firstCat : '';
+  };
+
+  const handleApplyCategoryToAllForSection = (section: GroupedPdfSection, categoryId: string) => {
+    setState((current) => {
+      const nextCategoryByIndex = { ...current.categoryByIndex };
+      for (const row of section.rows) {
+        nextCategoryByIndex[row.index] = categoryId;
+      }
+      return {
+        ...current,
+        categoryByIndex: nextCategoryByIndex,
+      };
+    });
+  };
+
   const allCategories = state.comparison?.categories && state.comparison.categories.length > 0 
     ? state.comparison.categories 
     : state.categories;
@@ -294,25 +314,37 @@ export default function WalletImportPage() {
                       </div>
                     </div>
 
-                    <div 
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        toggleSelectAllForSection(section, !allSelected);
-                      }}
-                      style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', fontSize: '0.9rem' }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={allSelected}
-                        aria-label="Toggle all rows"
-                        readOnly
-                        ref={(el) => {
-                          if (el) {
-                            el.indeterminate = someSelected && !allSelected;
-                          }
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }} onClick={(e) => e.stopPropagation()}>
+                      <div 
+                        onClick={() => {
+                          toggleSelectAllForSection(section, !allSelected);
                         }}
-                      />
-                      <span style={{ marginLeft: '0.5rem', fontWeight: 500 }}>Select All</span>
+                        style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', fontSize: '0.9rem' }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={allSelected}
+                          aria-label="Toggle all rows"
+                          readOnly
+                          ref={(el) => {
+                            if (el) {
+                              el.indeterminate = someSelected && !allSelected;
+                            }
+                          }}
+                        />
+                        <span style={{ marginLeft: '0.5rem', fontWeight: 500 }}>Select All</span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>Apply Category:</span>
+                        <CategoryDropdown
+                          categories={allCategories}
+                          value={getCommonCategoryForSection(section)}
+                          onChange={(categoryId) => handleApplyCategoryToAllForSection(section, categoryId)}
+                          label={`Category for all in card ${section.cardLast4}`}
+                          inline={true}
+                        />
+                      </div>
                     </div>
                   </div>
 
@@ -384,6 +416,7 @@ export default function WalletImportPage() {
                                           value={state.categoryByIndex[row.index] ?? null}
                                           onChange={(categoryId) => handleCategoryChange(row.index, categoryId)}
                                           label={`Category for row ${row.index}`}
+                                          inline={true}
                                         />
                                         {((state.categoryByIndex[row.index] ?? '').length === 0) ? (
                                           <div className="form-description" style={{ color: 'var(--mismatch)', margin: 0, fontSize: '0.8rem' }}>

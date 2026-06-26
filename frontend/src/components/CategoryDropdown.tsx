@@ -5,9 +5,10 @@ interface CategoryDropdownProps {
   value: string | null;
   onChange: (categoryId: string) => void;
   label: string;
+  inline?: boolean;
 }
 
-export default function CategoryDropdown({ categories, value, onChange, label }: CategoryDropdownProps) {
+export default function CategoryDropdown({ categories, value, onChange, label, inline }: CategoryDropdownProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [highlightedIndex, setHighlightedIndex] = useState(0);
@@ -66,8 +67,27 @@ export default function CategoryDropdown({ categories, value, onChange, label }:
   };
 
   return (
-    <div className="wallet-picker" ref={dropdownRef} style={{ position: 'relative' }}>
-      <span>{label}</span>
+    <div 
+      className="wallet-picker" 
+      ref={dropdownRef} 
+      style={{ 
+        position: 'relative',
+        marginTop: inline ? '0' : undefined,
+        display: inline ? 'inline-block' : undefined,
+        width: inline ? '220px' : undefined
+      }}
+    >
+      <span style={inline ? {
+        position: 'absolute',
+        width: '1px',
+        height: '1px',
+        padding: '0',
+        margin: '-1px',
+        overflow: 'hidden',
+        clip: 'rect(0, 0, 0, 0)',
+        whiteSpace: 'nowrap',
+        border: '0',
+      } : undefined}>{label}</span>
       
       {/* Visually hidden select for testing-library and accessibility compatibility */}
       <select

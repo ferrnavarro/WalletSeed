@@ -175,4 +175,80 @@ describe('WalletImportPage selection and preview flow', () => {
     expect(rowCheckboxes[0]).not.toBeChecked();
     expect(rowCheckboxes[1]).not.toBeChecked();
   });
+
+  it('allows applying a category to all rows inside a card section', async () => {
+    vi.mocked(walletClient.compare).mockResolvedValue({
+      ok: true,
+      data: {
+        window: { from: '2026-06-01', to: '2026-06-30', issueDate: '2026-06-01', cutoffDate: '2026-06-30' },
+        account: { id: 'acct-1', name: 'Main Checking', currencyCode: 'USD', accountType: 'checking' },
+        categories: [
+          { id: 'cat-1', name: 'Food', color: null },
+          { id: 'cat-2', name: 'Transport', color: null },
+        ],
+        pdfRows: [
+          {
+            index: 0,
+            date: '2026-06-10',
+            signedAmount: -12.5,
+            currency: 'USD',
+            description: 'Coffee',
+            counterParty: null,
+            cardholderSectionRawName: 'MAIN',
+            cardLast4: '1234',
+            matchedWalletRecordIds: [],
+            defaultSelected: true,
+            currencyMismatch: false,
+            previewLabelIds: [],
+            previewLabelNames: [],
+          },
+          {
+            index: 1,
+            date: '2026-06-11',
+            signedAmount: -20.0,
+            currency: 'USD',
+            description: 'Gas',
+            counterParty: null,
+            cardholderSectionRawName: 'MAIN',
+            cardLast4: '1234',
+            matchedWalletRecordIds: [],
+            defaultSelected: true,
+            currencyMismatch: false,
+            previewLabelIds: [],
+            previewLabelNames: [],
+          },
+        ],
+        walletRows: [],
+        unmappedSections: [],
+      },
+    });
+
+    render(<WalletImportPage />);
+
+    await waitFor(() => {
+      expect(screen.getByRole('option', { name: /main checking/i })).toBeInTheDocument();
+    });
+
+    await userEvent.selectOptions(screen.getByLabelText(/wallet account/i), 'acct-1');
+
+    const file = new File(['dummy pdf'], 'statement.pdf', { type: 'application/pdf' });
+    await userEvent.upload(screen.getByLabelText(/choose pdf statement/i), file);
+    await userEvent.click(screen.getByRole('button', { name: /extract statement/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Coffee')).toBeInTheDocument();
+      expect(screen.getByText('Gas')).toBeInTheDocument();
+    });
+
+    // Select the category for all using the section-level dropdown
+    const applyDropdown = screen.getByLabelText('Category for all in card 1234');
+    await userEvent.selectOptions(applyDropdown, 'cat-2');
+
+    // Check that both row dropdowns are now updated to 'cat-2' (Transport)
+    const row0Dropdown = screen.getByLabelText('Category for row 0');
+    const row1Dropdown = screen.getByLabelText('Category for row 1');
+
+    expect(row0Dropdown).toHaveValue('cat-2');
+    expect(row1Dropdown).toHaveValue('cat-2');
+  });
 });
