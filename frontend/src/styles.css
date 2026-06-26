@@ -156,7 +156,7 @@ body::after {
 }
 
 .wallet-page {
-  max-width: 760px;
+  max-width: var(--max-width);
   margin: 0 auto;
 }
 
