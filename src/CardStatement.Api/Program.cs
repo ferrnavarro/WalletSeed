@@ -6,6 +6,8 @@ using CardStatement.Core.Banks.Bac;
 
 using CardStatement.Api.Endpoints;
 using CardStatement.Api.Contracts;
+using CardStatement.Api.Wallet;
+using CardStatement.Api.Wallet.Registration;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,6 +21,7 @@ builder.Logging.ClearProviders().AddSimpleConsole(o =>
 // Register CardStatement.Core services with DI
 builder.Services.AddCardStatementCore();
 builder.Services.AddBacBank();
+builder.Services.AddWalletIntegration(builder.Configuration);
 
 // T013: Configure System.Text.Json options
 builder.Services.ConfigureHttpJsonOptions(o =>
@@ -70,6 +73,7 @@ app.UseExceptionHandler(exceptionHandlerApp =>
 app.UseCors("frontend");
 
 app.MapExtract();
+app.MapWalletImport();
 
 app.MapGet("/", () => "WalletSeed Statement Extraction API is running.");
 

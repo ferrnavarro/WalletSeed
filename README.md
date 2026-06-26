@@ -124,3 +124,7 @@ Execute the xUnit suite to run all unit, integration, and End-to-End tests:
 ```bash
 dotnet test
 ```
+
+## Wallet Import
+
+The Wallet import experience is documented in [specs/003-wallet-import/quickstart.md](specs/003-wallet-import/quickstart.md). It covers account setup, the compare workflow, row selection and category assignment, and the submit/reload flow against a real Wallet account.

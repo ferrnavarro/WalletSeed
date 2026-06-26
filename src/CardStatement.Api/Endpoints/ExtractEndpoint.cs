@@ -20,42 +20,10 @@ public static class ExtractEndpoint
             IConfiguration config,
             ILogger<Program> log) =>
         {
-            // T063: Guard file null or empty
-            if (file is null || file.Length == 0)
+            var guardFailure = PdfUploadGuard.Check(file, config, log);
+            if (guardFailure is not null)
             {
-                return Results.BadRequest(new ExtractionErrorResponse(
-                    new ErrorBody(ErrorCodes.EmptyFile, "The selected file is empty.")
-                ));
-            }
-
-            // T063: Guard file size limit
-            var maxBytes = config.GetValue<long>("Upload:MaxBytes");
-            if (file.Length > maxBytes)
-            {
-                return Results.Json(new ExtractionErrorResponse(
-                    new ErrorBody(ErrorCodes.FileTooLarge, "This file exceeds the 25 MB limit.")
-                ), statusCode: StatusCodes.Status413PayloadTooLarge);
-            }
-
-            // T064: Magic-byte sniff %PDF-
-            try
-            {
-                using var sniffStream = file.OpenReadStream();
-                byte[] buffer = new byte[5];
-                int read = sniffStream.Read(buffer, 0, 5);
-                if (read < 5 || buffer[0] != 0x25 || buffer[1] != 0x50 || buffer[2] != 0x44 || buffer[3] != 0x46 || buffer[4] != 0x2d)
-                {
-                    return Results.BadRequest(new ExtractionErrorResponse(
-                        new ErrorBody(ErrorCodes.InvalidFileType, "Please upload a PDF file.")
-                    ));
-                }
-            }
-            catch (Exception ex)
-            {
-                log.LogError(ex, "Failed to read magic bytes from upload stream");
-                return Results.BadRequest(new ExtractionErrorResponse(
-                    new ErrorBody(ErrorCodes.InvalidFileType, "Please upload a PDF file.")
-                ));
+                return guardFailure;
             }
 
             // Log exit metadata without logging PII (R9 Constraint)
