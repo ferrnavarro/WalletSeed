@@ -18,6 +18,62 @@ public class WalletAccountsAndCategoriesEndpointTests : IClassFixture<WebApiFact
     }
 
     [Fact]
+    public async Task WalletApiClient_UsesConfiguredBasePath_WhenBuildingRequestUris()
+    {
+        Uri? seenUri = null;
+        var client = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("Wallet:BaseUrl", "https://wallet.example/wallet/v1/api");
+            builder.UseSetting("Wallet:Jwt", "test-jwt");
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IWalletApiClient>();
+                services.AddHttpClient<IWalletApiClient, WalletApiClient>()
+                    .ConfigurePrimaryHttpMessageHandler(() => new StubHttpHandler(request =>
+                    {
+                        seenUri = request.RequestUri;
+                        return new HttpResponseMessage(HttpStatusCode.OK)
+                        {
+                            Content = JsonContent.Create(new { accounts = Array.Empty<object>() })
+                        };
+                    }));
+            });
+        }).CreateClient();
+
+        var response = await client.GetAsync("/api/wallet/accounts");
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal(new Uri("https://wallet.example/wallet/v1/api/accounts"), seenUri);
+    }
+
+    [Fact]
+    public async Task AccountsEndpoint_UsesNestedCurrencyCode_WhenTopLevelCurrencyCodeIsAbsent()
+    {
+        var client = _factory.WithWebHostBuilder(builder =>
+        {
+            builder.UseSetting("Wallet:BaseUrl", "https://wallet.example");
+            builder.UseSetting("Wallet:Jwt", "test-jwt");
+            builder.ConfigureServices(services =>
+            {
+                services.RemoveAll<IWalletApiClient>();
+                services.AddHttpClient<IWalletApiClient, WalletApiClient>()
+                    .ConfigurePrimaryHttpMessageHandler(() => new StubHttpHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+                    {
+                        Content = JsonContent.Create(new { accounts = new[] { new { id = "acct-1", name = "Checking", initialBalance = new { currencyCode = "USD" }, accountType = "SavingAccount", archived = false } } })
+                    }));
+            });
+        }).CreateClient();
+
+        var response = await client.GetAsync("/api/wallet/accounts");
+        var payload = await response.Content.ReadFromJsonAsync<WalletAccountsPayload>();
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.NotNull(payload);
+        Assert.Single(payload!.Accounts);
+        Assert.Equal("USD", payload.Accounts[0].CurrencyCode);
+    }
+
+    [Fact]
     public async Task AccountsAndCategories_RespondWithExpectedPayloads_AndFilterArchivedAccounts()
     {
         var client = _factory.WithWebHostBuilder(builder =>
@@ -108,4 +164,7 @@ public class WalletAccountsAndCategoriesEndpointTests : IClassFixture<WebApiFact
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) => Task.FromResult(responder(request));
     }
+
+    private sealed record WalletAccountsPayload(IReadOnlyList<WalletAccountPayload> Accounts);
+    private sealed record WalletAccountPayload(string Id, string Name, string CurrencyCode, string AccountType);
 }

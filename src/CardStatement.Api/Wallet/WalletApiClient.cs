@@ -28,12 +28,12 @@ public sealed class WalletApiClient : IWalletApiClient
     public async Task<IReadOnlyList<WalletAccount>> ListAccountsAsync(CancellationToken ct = default)
     {
         EnsureConfigured();
-        var response = await SendAsync(HttpMethod.Get, "/v1/api/accounts", ct);
+        var response = await SendAsync(HttpMethod.Get, "accounts", ct);
         var document = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
         return document?.RootElement.GetProperty("accounts").EnumerateArray().Select(a => new WalletAccount(
             a.GetProperty("id").GetString() ?? string.Empty,
             a.GetProperty("name").GetString() ?? string.Empty,
-            a.GetProperty("currencyCode").GetString() ?? string.Empty,
+            ReadCurrencyCode(a),
             a.GetProperty("accountType").GetString() ?? string.Empty,
             a.TryGetProperty("archived", out var archived) && archived.GetBoolean())).ToList() ?? [];
     }
@@ -41,7 +41,7 @@ public sealed class WalletApiClient : IWalletApiClient
     public async Task<IReadOnlyList<WalletCategory>> ListCategoriesAsync(CancellationToken ct = default)
     {
         EnsureConfigured();
-        var response = await SendAsync(HttpMethod.Get, "/v1/api/categories", ct);
+        var response = await SendAsync(HttpMethod.Get, "categories", ct);
         var document = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
         return document?.RootElement.GetProperty("categories").EnumerateArray().Select(c => new WalletCategory(
             c.GetProperty("id").GetString() ?? string.Empty,
@@ -56,7 +56,7 @@ public sealed class WalletApiClient : IWalletApiClient
         var offset = 0;
         while (true)
         {
-            var requestUri = $"/v1/api/records?accountId={Uri.EscapeDataString(accountId)}&recordDate=gte.{from:yyyy-MM-dd}&recordDate=lt.{to.AddDays(1):yyyy-MM-dd}&limit=200&offset={offset}";
+            var requestUri = $"records?accountId={Uri.EscapeDataString(accountId)}&recordDate=gte.{from:yyyy-MM-dd}&recordDate=lt.{to.AddDays(1):yyyy-MM-dd}&limit=200&offset={offset}";
             var response = await SendAsync(HttpMethod.Get, requestUri, ct);
             var document = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
             var items = document?.RootElement.GetProperty("records").EnumerateArray().Select(r => new WalletRecord(
@@ -88,7 +88,7 @@ public sealed class WalletApiClient : IWalletApiClient
         var offset = 0;
         while (true)
         {
-            var requestUri = $"/v1/api/labels?limit=200&offset={offset}";
+            var requestUri = $"labels?limit=200&offset={offset}";
             var response = await SendAsync(HttpMethod.Get, requestUri, ct);
             var document = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
             var items = document?.RootElement.GetProperty("labels").EnumerateArray().Select(l => new WalletLabel(
@@ -114,7 +114,7 @@ public sealed class WalletApiClient : IWalletApiClient
     {
         EnsureConfigured();
         var payload = new { records = rows.Select(r => new { accountId = r.AccountId, recordDate = r.RecordDate.ToString("O"), amount = new { value = r.SignedAmount, currencyCode = r.CurrencyCode }, paymentType = r.PaymentType, categoryId = r.CategoryId, labelIds = r.LabelIds, note = r.Note, counterParty = r.CounterParty }).ToList() };
-        var response = await SendAsync(HttpMethod.Post, "/v1/api/records", ct, payload);
+        var response = await SendAsync(HttpMethod.Post, "records", ct, payload);
         var document = await response.Content.ReadFromJsonAsync<JsonDocument>(cancellationToken: ct);
         return document?.RootElement.GetProperty("outcomes").EnumerateArray().Select((item, index) => new WalletCreateOutcome(index, item.GetProperty("success").GetBoolean(), item.TryGetProperty("id", out var id) ? id.GetString() : null, item.TryGetProperty("error", out var error) ? error.GetString() : null)).ToList() ?? [];
     }
@@ -135,7 +135,10 @@ public sealed class WalletApiClient : IWalletApiClient
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, CancellationToken ct, object? payload = null)
     {
         EnsureConfigured();
-        using var request = new HttpRequestMessage(method, new Uri(new Uri(_options.BaseUrl!, UriKind.Absolute), path));
+
+        var baseUri = _httpClient.BaseAddress ?? new Uri(_options.BaseUrl!, UriKind.Absolute);
+        var requestUri = CombineUri(baseUri, path);
+        using var request = new HttpRequestMessage(method, requestUri);
         request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.Jwt);
         if (payload is not null)
         {
@@ -172,6 +175,31 @@ public sealed class WalletApiClient : IWalletApiClient
             _logger.LogWarning(ex, "Wallet API request failed. BodyExcerpt: {BodyExcerpt}", "<network>");
             throw new WalletApiException(WalletApiErrorKind.Unavailable, "Wallet API is unavailable.", null, "<network>");
         }
+    }
+
+    private static Uri CombineUri(Uri baseUri, string path)
+    {
+        var normalizedBase = baseUri.ToString().TrimEnd('/') + "/";
+        var normalizedPath = path.TrimStart('/');
+        return new Uri(new Uri(normalizedBase, UriKind.Absolute), normalizedPath);
+    }
+
+    private static string ReadCurrencyCode(JsonElement account)
+    {
+        if (account.TryGetProperty("currencyCode", out var currencyCode) && currencyCode.ValueKind == JsonValueKind.String)
+        {
+            return currencyCode.GetString() ?? string.Empty;
+        }
+
+        if (account.TryGetProperty("initialBalance", out var initialBalance) &&
+            initialBalance.ValueKind == JsonValueKind.Object &&
+            initialBalance.TryGetProperty("currencyCode", out var initialCurrencyCode) &&
+            initialCurrencyCode.ValueKind == JsonValueKind.String)
+        {
+            return initialCurrencyCode.GetString() ?? string.Empty;
+        }
+
+        return string.Empty;
     }
 
     private static async Task<string?> ReadBodyExcerptAsync(HttpResponseMessage response)
