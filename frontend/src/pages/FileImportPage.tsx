@@ -72,6 +72,8 @@ export default function FileImportPage() {
     submitting: false,
   });
 
+  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
+
   useEffect(() => {
     void (async () => {
       const accountsResult = await listAccounts();
@@ -201,6 +203,7 @@ export default function FileImportPage() {
         counterParty: row.counterParty,
         cardholderSectionRawName: row.cardholderSectionRawName,
         categoryId: state.categoryByIndex[row.index] ?? '',
+        cardLast4: row.cardLast4,
       })),
     };
   };
@@ -264,8 +267,63 @@ export default function FileImportPage() {
     : state.categories;
 
   // Display ordering: newest date first. Indices preserved (used for selection/category/submit mapping).
-  const sortedPdfRows = comparison ? [...comparison.pdfRows].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.index - b.index)) : [];
   const sortedWalletRows = comparison ? [...comparison.walletRows].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) : [];
+
+  // Group rows by card (last4), newest date first within each section.
+  interface CardSection {
+    cardLast4: string;
+    labelName: string | null;
+    rows: PdfRow[];
+  }
+
+  const cardSections: CardSection[] = [];
+  if (comparison) {
+    for (const row of comparison.pdfRows) {
+      let section = cardSections.find((s) => s.cardLast4 === row.cardLast4);
+      if (!section) {
+        section = { cardLast4: row.cardLast4, labelName: null, rows: [] };
+        cardSections.push(section);
+      }
+      section.rows.push(row);
+      if (!section.labelName && row.previewLabelNames.length > 0) {
+        section.labelName = row.previewLabelNames.join(', ');
+      }
+    }
+    for (const section of cardSections) {
+      section.rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.index - b.index));
+    }
+  }
+
+  const toggleSectionCollapse = (sectionKey: string) => {
+    setCollapsedSections((prev) => ({ ...prev, [sectionKey]: !prev[sectionKey] }));
+  };
+
+  const toggleSelectAllForSection = (section: CardSection, select: boolean) => {
+    setState((current) => {
+      const nextSelectedRows = { ...current.selectedRows };
+      for (const row of section.rows) {
+        nextSelectedRows[row.index] = select;
+      }
+      return { ...current, selectedRows: nextSelectedRows };
+    });
+  };
+
+  const getCommonCategoryForSection = (section: CardSection): string | null => {
+    if (section.rows.length === 0) return null;
+    const firstCat = state.categoryByIndex[section.rows[0].index] ?? '';
+    const allSame = section.rows.every((row) => (state.categoryByIndex[row.index] ?? '') === firstCat);
+    return allSame ? firstCat : '';
+  };
+
+  const handleApplyCategoryToSection = (section: CardSection, categoryId: string) => {
+    setState((current) => {
+      const nextCategoryByIndex = { ...current.categoryByIndex };
+      for (const row of section.rows) {
+        nextCategoryByIndex[row.index] = categoryId;
+      }
+      return { ...current, categoryByIndex: nextCategoryByIndex };
+    });
+  };
 
   const allSelected = Boolean(comparison) && comparison!.pdfRows.length > 0 && comparison!.pdfRows.every((row) => state.selectedRows[row.index]);
   const someSelected = selectedRowList.length > 0;
@@ -352,94 +410,167 @@ export default function FileImportPage() {
               </div>
             </div>
 
-            <div className="table-responsive">
-              <table className="transactions-table">
-                <thead>
-                  <tr>
-                    <th style={{ width: '100px' }}>Select</th>
-                    <th style={{ width: '120px' }}>Date</th>
-                    <th>Description</th>
-                    <th style={{ width: '100px' }}>Card</th>
-                    <th className="col-amount-header" style={{ width: '120px' }}>Amount</th>
-                    <th style={{ width: '180px' }}>Match Status</th>
-                    <th style={{ width: '220px' }}>Category</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedPdfRows.map((row) => {
-                    const isSelected = Boolean(state.selectedRows[row.index]);
-                    const isIncome = row.signedAmount > 0;
-                    const selectedCategoryName = allCategories.find((c) => c.id === state.categoryByIndex[row.index])?.name ?? null;
+            {cardSections.map((section) => {
+              const sectionKey = `card-${section.cardLast4}`;
+              const isCollapsed = Boolean(collapsedSections[sectionKey]);
+              const allSectionSelected = section.rows.length > 0 && section.rows.every((row) => state.selectedRows[row.index]);
+              const someSectionSelected = section.rows.some((row) => state.selectedRows[row.index]);
 
-                    return (
-                      <tr key={row.index} className={`transaction-row ${row.currencyMismatch ? 'needs-review' : ''}`}>
-                        <td>
-                          <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => toggleSelection(row.index)}
-                            />
-                            <span style={{ marginLeft: '0.5rem' }}>Select</span>
-                          </label>
-                        </td>
-                        <td className="col-date">{row.date}</td>
-                        <td className="col-desc">
-                          <span style={{ fontWeight: 600 }}>{row.description}</span>
-                        </td>
-                        <td className="col-ref">{row.cardLast4}</td>
-                        <td className="col-amount">
-                          <span className={`direction-badge direction--${isIncome ? 'income' : 'expense'}`}>
-                            {isIncome ? '+' : '-'}${Math.abs(row.signedAmount).toFixed(2)}
-                          </span>
-                        </td>
-                        <td>
-                          {row.matchedWalletRecordIds.length > 0 ? (
-                            <span className="badge">
-                              Matches W-{row.matchedWalletRecordIds.join(', ')}
-                            </span>
-                          ) : (
-                            <span style={{ color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>No match</span>
-                          )}
-                          {row.currencyMismatch && (
-                            <div style={{ color: 'var(--mismatch)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
-                              ⚠️ Currency Mismatch ({row.currency})
-                            </div>
-                          )}
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-                            {isSelected ? (
-                              <>
-                                <CategoryDropdown
-                                  categories={allCategories}
-                                  value={state.categoryByIndex[row.index] ?? null}
-                                  onChange={(categoryId) => handleCategoryChange(row.index, categoryId)}
-                                  label={`Category for row ${row.index}`}
-                                  inline={true}
-                                />
-                                {((state.categoryByIndex[row.index] ?? '').length === 0) ? (
-                                  <div className="form-description" style={{ color: 'var(--mismatch)', margin: 0, fontSize: '0.8rem' }}>
-                                    Needs category
+              return (
+                <div key={sectionKey} className="glass-card cardholder-section animate-fade-in" style={{ marginTop: '1.5rem', padding: '1.5rem 2rem' }}>
+                  <div
+                    className="section-header"
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      marginBottom: isCollapsed ? '0' : '1rem',
+                      cursor: 'pointer',
+                      userSelect: 'none'
+                    }}
+                    onClick={() => toggleSectionCollapse(sectionKey)}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                      <span style={{
+                        fontSize: '1rem',
+                        color: 'var(--color-text-dim)',
+                        transition: 'transform var(--transition-fast)',
+                        transform: isCollapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+                        display: 'inline-block'
+                      }}>
+                        ▼
+                      </span>
+                      <div>
+                        <h3 style={{ margin: 0, fontSize: '1.15rem' }}>Card last 4: {section.cardLast4}</h3>
+                        {section.labelName ? (
+                          <span className="holder-name" style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)', display: 'block', marginTop: '0.1rem' }}>{section.labelName}</span>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }} onClick={(e) => e.stopPropagation()}>
+                      <div
+                        onClick={() => toggleSelectAllForSection(section, !allSectionSelected)}
+                        style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', fontSize: '0.9rem' }}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={allSectionSelected}
+                          aria-label={`Toggle all rows for card ${section.cardLast4}`}
+                          readOnly
+                          ref={(el) => {
+                            if (el) {
+                              el.indeterminate = someSectionSelected && !allSectionSelected;
+                            }
+                          }}
+                        />
+                        <span style={{ marginLeft: '0.5rem', fontWeight: 500 }}>Select All</span>
+                      </div>
+
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)' }}>Apply Category:</span>
+                        <CategoryDropdown
+                          categories={allCategories}
+                          value={getCommonCategoryForSection(section)}
+                          onChange={(categoryId) => handleApplyCategoryToSection(section, categoryId)}
+                          label={`Category for all in card ${section.cardLast4}`}
+                          inline={true}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {!isCollapsed && (
+                    <div className="table-responsive">
+                      <table className="transactions-table">
+                        <thead>
+                          <tr>
+                            <th style={{ width: '100px' }}>Select</th>
+                            <th style={{ width: '120px' }}>Date</th>
+                            <th>Description</th>
+                            <th className="col-amount-header" style={{ width: '120px' }}>Amount</th>
+                            <th style={{ width: '180px' }}>Match Status</th>
+                            <th style={{ width: '220px' }}>Category</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {section.rows.map((row) => {
+                            const isSelected = Boolean(state.selectedRows[row.index]);
+                            const isIncome = row.signedAmount > 0;
+                            const selectedCategoryName = allCategories.find((c) => c.id === state.categoryByIndex[row.index])?.name ?? null;
+
+                            return (
+                              <tr key={row.index} className={`transaction-row ${row.currencyMismatch ? 'needs-review' : ''}`}>
+                                <td>
+                                  <label style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer' }}>
+                                    <input
+                                      type="checkbox"
+                                      checked={isSelected}
+                                      onChange={() => toggleSelection(row.index)}
+                                    />
+                                    <span style={{ marginLeft: '0.5rem' }}>Select</span>
+                                  </label>
+                                </td>
+                                <td className="col-date">{row.date}</td>
+                                <td className="col-desc">
+                                  <span style={{ fontWeight: 600 }}>{row.description}</span>
+                                </td>
+                                <td className="col-amount">
+                                  <span className={`direction-badge direction--${isIncome ? 'income' : 'expense'}`}>
+                                    {isIncome ? '+' : '-'}${Math.abs(row.signedAmount).toFixed(2)}
+                                  </span>
+                                </td>
+                                <td>
+                                  {row.matchedWalletRecordIds.length > 0 ? (
+                                    <span className="badge">
+                                      Matches W-{row.matchedWalletRecordIds.join(', ')}
+                                    </span>
+                                  ) : (
+                                    <span style={{ color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>No match</span>
+                                  )}
+                                  {row.currencyMismatch && (
+                                    <div style={{ color: 'var(--mismatch)', fontSize: '0.8rem', marginTop: '0.25rem' }}>
+                                      ⚠️ Currency Mismatch ({row.currency})
+                                    </div>
+                                  )}
+                                </td>
+                                <td>
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+                                    {isSelected ? (
+                                      <>
+                                        <CategoryDropdown
+                                          categories={allCategories}
+                                          value={state.categoryByIndex[row.index] ?? null}
+                                          onChange={(categoryId) => handleCategoryChange(row.index, categoryId)}
+                                          label={`Category for row ${row.index}`}
+                                          inline={true}
+                                        />
+                                        {((state.categoryByIndex[row.index] ?? '').length === 0) ? (
+                                          <div className="form-description" style={{ color: 'var(--mismatch)', margin: 0, fontSize: '0.8rem' }}>
+                                            Needs category
+                                          </div>
+                                        ) : null}
+                                        <PerRowPreview
+                                          row={row}
+                                          accountName={comparison.account.name}
+                                          categoryName={selectedCategoryName}
+                                        />
+                                      </>
+                                    ) : (
+                                      <span style={{ color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>Not imported</span>
+                                    )}
                                   </div>
-                                ) : null}
-                                <PerRowPreview
-                                  row={row}
-                                  accountName={comparison.account.name}
-                                  categoryName={selectedCategoryName}
-                                />
-                              </>
-                            ) : (
-                              <span style={{ color: 'var(--color-text-dim)', fontSize: '0.85rem' }}>Not imported</span>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
 
           <details className="glass-card cardholder-section animate-fade-in" style={{ marginTop: '2rem', padding: '1.5rem 2rem' }}>

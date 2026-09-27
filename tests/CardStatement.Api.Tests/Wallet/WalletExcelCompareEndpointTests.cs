@@ -54,6 +54,13 @@ public class WalletExcelCompareEndpointTests : IClassFixture<WebApiFactory>
                                 Content = JsonContent.Create(new { records = Array.Empty<object>() })
                             };
                         }
+                        if (path.Contains("/labels"))
+                        {
+                            return new HttpResponseMessage(HttpStatusCode.OK)
+                            {
+                                Content = JsonContent.Create(new { labels = Array.Empty<object>() })
+                            };
+                        }
                         return new HttpResponseMessage(HttpStatusCode.NotFound);
                     }));
             });

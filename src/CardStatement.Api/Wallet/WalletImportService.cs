@@ -154,7 +154,7 @@ public sealed class WalletImportService
                 tx.Description,
                 null,
                 string.Empty,
-                result.CardLast4));
+                tx.CardLast4));
         }
 
         return rows;
@@ -218,30 +218,40 @@ public sealed class WalletImportService
         var accountsTask = _walletClient.ListAccountsAsync(ct);
         var categoriesTask = _walletClient.ListCategoriesAsync(ct);
         var recordsTask = _walletClient.ListRecordsAsync(accountId, window.From, window.To, ct);
+        var labelsTask = _walletClient.ListLabelsAsync(ct);
 
-        await Task.WhenAll(accountsTask, categoriesTask, recordsTask);
+        await Task.WhenAll(accountsTask, categoriesTask, recordsTask, labelsTask);
 
         var accounts = (await accountsTask).Where(a => !a.Archived).ToList();
         var categories = (await categoriesTask).ToList();
         var records = (await recordsTask).ToList();
+        var labels = (await labelsTask).ToList();
 
         var account = accounts.FirstOrDefault(a => a.Id == accountId) ?? accounts.FirstOrDefault() ?? new WalletAccount(accountId, "Unknown", "USD", "CreditCard", false);
         var matches = DuplicateMatcher.Match(pdfRows, records);
 
-        var pdfRowDtos = pdfRows.Select(row => new PdfRowDto(
-            row.Index,
-            row.Date,
-            row.SignedAmount,
-            row.Currency,
-            row.Description,
-            null,
-            row.CardholderSectionRawName,
-            row.CardLast4,
-            matches[row.Index].ToList(),
-            matches[row.Index].Count == 0,
-            !string.Equals(account.CurrencyCode, row.Currency, StringComparison.Ordinal),
-            Array.Empty<string>(),
-            Array.Empty<string>())).ToList();
+        var labelLookup = labels.Where(l => !l.Archived).ToDictionary(l => l.Id, l => l.Name, StringComparer.OrdinalIgnoreCase);
+        var pdfRowDtos = pdfRows.Select(row =>
+        {
+            var previewLabelIds = _labelMapping.ResolveByCardLast4(row.CardLast4);
+            var previewLabelNames = previewLabelIds.Select(id => labelLookup.TryGetValue(id, out var name) ? name : id).ToList();
+            return new PdfRowDto(
+                row.Index,
+                row.Date,
+                row.SignedAmount,
+                row.Currency,
+                row.Description,
+                null,
+                row.CardholderSectionRawName,
+                row.CardLast4,
+                matches[row.Index].ToList(),
+                matches[row.Index].Count == 0,
+                !string.Equals(account.CurrencyCode, row.Currency, StringComparison.Ordinal),
+                previewLabelIds,
+                previewLabelNames);
+        }).ToList();
+
+        var unmappedCards = _labelMapping.FindUnmappedCards(pdfRows.Select(r => r.CardLast4));
 
         var walletRowDtos = records.OrderBy(r => r.RecordDate).ThenBy(r => r.Id, StringComparer.Ordinal).Select(r => new WalletRowDto(
             r.Id,
@@ -259,7 +269,7 @@ public sealed class WalletImportService
             categories.Select(c => new WalletCategoryDto(c.Id, c.Name, c.Color)).ToList(),
             pdfRowDtos,
             walletRowDtos,
-            Array.Empty<string>());
+            unmappedCards);
 
         return new FileImportCompareResult(response, fileErrors);
     }
@@ -280,7 +290,7 @@ public sealed class WalletImportService
                 item.row.Currency,
                 "credit_card",
                 item.row.CategoryId,
-                _labelMapping.Resolve(item.row.CardholderSectionRawName),
+                ResolveLabels(item.row),
                 item.row.Description,
                 item.row.CounterParty)).ToList();
 
@@ -297,5 +307,21 @@ public sealed class WalletImportService
         }
 
         return new SubmitResponse(outcomes.OrderBy(o => o.Index).ToList());
+    }
+
+    private IReadOnlyList<string> ResolveLabels(SubmitRequestRow row)
+    {
+        // Card-based mapping (CSV/Excel file imports) takes precedence when available;
+        // otherwise fall back to cardholder-name mapping (PDF flow).
+        if (!string.IsNullOrWhiteSpace(row.CardLast4))
+        {
+            var byCard = _labelMapping.ResolveByCardLast4(row.CardLast4);
+            if (byCard.Count > 0)
+            {
+                return byCard;
+            }
+        }
+
+        return _labelMapping.Resolve(row.CardholderSectionRawName);
     }
 }

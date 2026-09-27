@@ -25,6 +25,20 @@ public sealed class LabelMappingResolver
         return _mappings.TryGetValue(cardholderRawName, out var labelId) ? new[] { labelId } : Array.Empty<string>();
     }
 
+    /// <summary>
+    /// Resolves a label by card last-4. Only mapping keys that are exactly 4 digits
+    /// are considered card keys, so name-based mappings (PDF flow) are unaffected.
+    /// </summary>
+    public IReadOnlyList<string> ResolveByCardLast4(string cardLast4)
+    {
+        if (string.IsNullOrWhiteSpace(cardLast4) || cardLast4.Length != 4 || !cardLast4.All(char.IsDigit))
+        {
+            return Array.Empty<string>();
+        }
+
+        return _mappings.TryGetValue(cardLast4, out var labelId) ? new[] { labelId } : Array.Empty<string>();
+    }
+
     public IReadOnlyList<string> FindUnmapped(IEnumerable<string> cardholderRawNames)
     {
         return cardholderRawNames
@@ -33,6 +47,21 @@ public sealed class LabelMappingResolver
             .Where(name => !_mappings.ContainsKey(name))
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .OrderBy(name => name, StringComparer.Ordinal)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Returns distinct card last-4s that have no card-based label mapping.
+    /// </summary>
+    public IReadOnlyList<string> FindUnmappedCards(IEnumerable<string> cardLast4s)
+    {
+        return cardLast4s
+            .Where(last4 => !string.IsNullOrWhiteSpace(last4))
+            .Select(last4 => last4.Trim())
+            .Where(last4 => last4.Length == 4 && last4.All(char.IsDigit))
+            .Where(last4 => !_mappings.ContainsKey(last4))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(last4 => last4, StringComparer.Ordinal)
             .ToList();
     }
 }

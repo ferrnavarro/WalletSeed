@@ -69,6 +69,7 @@ export interface SubmitRequestRow {
   counterParty?: string | null;
   cardholderSectionRawName: string;
   categoryId: string;
+  cardLast4?: string | null;
 }
 
 export interface SubmitRequest {

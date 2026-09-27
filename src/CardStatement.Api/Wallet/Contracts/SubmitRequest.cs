@@ -10,4 +10,5 @@ public sealed record SubmitRequestRow(
     string Description,
     string? CounterParty,
     string CardholderSectionRawName,
-    string CategoryId);
+    string CategoryId,
+    string? CardLast4 = null);

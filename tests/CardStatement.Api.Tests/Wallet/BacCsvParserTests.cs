@@ -65,6 +65,55 @@ public class BacCsvParserTests
     }
 
     [Fact]
+    public void Parse_MultiCardSample_AssignsPerSectionCards()
+    {
+        var filePath = Path.GetFullPath(Path.Combine(SamplesDir, "multiplecards", "Estado de cuenta.csv"));
+        if (!File.Exists(filePath)) return; // skip if samples missing
+
+        using var stream = File.OpenRead(filePath);
+        var result = BacCsvParser.Parse(stream);
+
+        // Header card is the primary card
+        Assert.Equal("5468", result.CardLast4);
+
+        // All four section cards appear
+        var cards = result.Transactions.Select(t => t.CardLast4).Distinct().OrderBy(c => c).ToList();
+        Assert.Equal(new[] { "2533", "2640", "2706", "5468" }, cards);
+
+        // Card 2640 section: 7 transactions (pet stores etc.)
+        Assert.Equal(7, result.Transactions.Count(t => t.CardLast4 == "2640"));
+        // Card 2706 section: 5 COMPASS transactions
+        Assert.Equal(5, result.Transactions.Count(t => t.CardLast4 == "2706"));
+        Assert.All(result.Transactions.Where(t => t.CardLast4 == "2706"), t => Assert.Contains("COMPASS", t.Description));
+
+        // Payment row belongs to card 5468
+        var payment = result.Transactions.FirstOrDefault(t => t.DollarsAmount < 0);
+        Assert.NotNull(payment);
+        Assert.Equal("5468", payment!.CardLast4);
+        Assert.Equal(-742.19m, payment.DollarsAmount);
+
+        // First row of the file belongs to the first section (2533)
+        Assert.Equal("2533", result.Transactions[0].CardLast4);
+        Assert.Equal("RESTAURANTE LA CABANA    SAN SALVADO", result.Transactions[0].Description);
+
+        // Footer content excluded
+        Assert.DoesNotContain(result.Transactions, t => t.Description.Contains("BONIFICACION", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(result.Transactions, t => t.Description.Contains("PUNTOS CREDOMATIC", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void Parse_SingleCardSample_AllRowsShareHeaderCard()
+    {
+        var filePath = Path.GetFullPath(Path.Combine(SamplesDir, "Estado de cuenta.csv"));
+        if (!File.Exists(filePath)) return;
+
+        using var stream = File.OpenRead(filePath);
+        var result = BacCsvParser.Parse(stream);
+
+        Assert.All(result.Transactions, t => Assert.Equal("2127", t.CardLast4));
+    }
+
+    [Fact]
     public void Parse_NoCardNumber_Throws()
     {
         var csv = "Date, , Local, Dollars\n01/01/2026, TEST, 0.00, 10.00\n";
