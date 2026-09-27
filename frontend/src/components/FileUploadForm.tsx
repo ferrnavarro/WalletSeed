@@ -46,7 +46,7 @@ export default function FileUploadForm({ onSubmit, onLocalError }: FileUploadFor
   return (
     <form onSubmit={handleSubmit} className="glass-card upload-form animate-fade-in">
       <h2>Upload Bank Statement Files</h2>
-      <p className="form-description">Select BAC CSV exports or Promerica Excel (.xlsx) statements to compare against your Wallet records.</p>
+      <p className="form-description">Select BAC CSV exports or Excel (.xlsx) statements from Promerica or Banco Cuscatlán to compare against your Wallet records.</p>
 
       <div className="file-input-container">
         <input

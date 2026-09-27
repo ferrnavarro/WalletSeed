@@ -281,7 +281,7 @@ export default function FileImportPage() {
     <section className="glass-card wallet-page">
       <h2>File Import</h2>
       <p className="form-description">
-        Pick an account and upload bank statement files (BAC CSV or Promerica Excel) to compare them with your Wallet records.
+        Pick an account and upload bank statement files (BAC CSV, Promerica or Cuscatlán Excel) to compare them with your Wallet records.
       </p>
 
       {state.error ? <WalletErrorBanner code={state.error.code} message={state.error.message} onRetry={() => setState((current) => ({ ...current, error: undefined }))} /> : null}

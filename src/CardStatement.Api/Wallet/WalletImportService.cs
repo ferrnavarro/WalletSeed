@@ -162,16 +162,14 @@ public sealed class WalletImportService
 
     private static List<PdfRowInternal> ParseExcelFile(Stream stream, ref int index)
     {
-        var result = PromericaExcelParser.Parse(stream);
+        var transactions = BankExcelParser.Parse(stream);
         var rows = new List<PdfRowInternal>();
-        foreach (var tx in result.Transactions)
+        foreach (var tx in transactions)
         {
-            // Promerica: Creditos = money in (income → positive), Debitos = money out (expense → negative)
-            var signedAmount = tx.Creditos > 0 ? tx.Creditos : -tx.Debitos;
             rows.Add(new PdfRowInternal(
                 index++,
                 tx.Date,
-                signedAmount,
+                tx.SignedAmount,
                 "USD",
                 tx.Description,
                 null,
@@ -198,10 +196,10 @@ public sealed class WalletImportService
             {
                 pdfRows.AddRange(parseFile(stream, ref index));
             }
-            catch (Exception ex) when (ex is BacCsvParseException or PromericaExcelParseException or InvalidDataException)
+            catch (Exception ex) when (ex is BacCsvParseException or PromericaExcelParseException or CuscatlanExcelParseException or UnrecognizedExcelLayoutException or InvalidDataException)
             {
                 _logger.LogWarning(ex, "Failed to parse import file {FileName}", fileName);
-                var message = ex is BacCsvParseException or PromericaExcelParseException
+                var message = ex is BacCsvParseException or PromericaExcelParseException or CuscatlanExcelParseException or UnrecognizedExcelLayoutException
                     ? ex.Message
                     : "The file could not be read. Please make sure it is a valid, unmodified bank export.";
                 fileErrors.Add(new FileImportError(fileName, message));

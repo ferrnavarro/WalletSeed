@@ -67,6 +67,106 @@ public class WalletExcelCompareEndpointTests : IClassFixture<WebApiFactory>
         return Directory.GetFiles(dir, "*.xlsx").FirstOrDefault();
     }
 
+    private static string? CuscatlanSampleFile()
+    {
+        var dir = Path.GetFullPath(Path.Combine(SamplesDir, "..", "cuscaexcel"));
+        if (!Directory.Exists(dir)) return null;
+        return Directory.GetFiles(dir, "*.xlsx").FirstOrDefault();
+    }
+
+    [Fact]
+    public async Task CompareExcel_WithCuscatlanFile_AutoDetectsAndFlipsSigns()
+    {
+        var sample = CuscatlanSampleFile();
+        if (sample is null) return;
+
+        var client = CreateClientWithStubWallet();
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent("acct-1"), "accountId");
+        var bytes = await File.ReadAllBytesAsync(sample);
+        var content = new ByteArrayContent(bytes);
+        content.Headers.ContentType = new("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        form.Add(content, "files", Path.GetFileName(sample));
+
+        var response = await client.PostAsync("/api/wallet/import/compare-excel", form);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<FileImportCompareResponse>();
+        Assert.NotNull(payload);
+        Assert.NotEmpty(payload.PdfRows);
+        Assert.Empty(payload.FileErrors);
+
+        Assert.All(payload.PdfRows, row =>
+        {
+            Assert.Equal("USD", row.Currency);
+            Assert.Equal("4502", row.CardLast4);
+        });
+
+        // Cuscatlán positive Dólares = expense → negative signedAmount
+        var purchase = payload.PdfRows.FirstOrDefault(r => r.Description.Contains("AMAZON"));
+        Assert.NotNull(purchase);
+        Assert.True(purchase!.SignedAmount < 0);
+
+        // Negative Dólares (PAGO RECIBIDO) = income → positive signedAmount
+        var payment = payload.PdfRows.FirstOrDefault(r => r.Description.StartsWith("PAGO RECIBIDO"));
+        Assert.NotNull(payment);
+        Assert.True(payment!.SignedAmount > 0);
+    }
+
+    [Fact]
+    public async Task CompareExcel_MixedBanks_MergesRows()
+    {
+        var promerica = SampleFile();
+        var cuscatlan = CuscatlanSampleFile();
+        if (promerica is null || cuscatlan is null) return;
+
+        var client = CreateClientWithStubWallet();
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent("acct-1"), "accountId");
+        foreach (var path in new[] { promerica, cuscatlan })
+        {
+            var bytes = await File.ReadAllBytesAsync(path);
+            var content = new ByteArrayContent(bytes);
+            content.Headers.ContentType = new("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+            form.Add(content, "files", Path.GetFileName(path));
+        }
+
+        var response = await client.PostAsync("/api/wallet/import/compare-excel", form);
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+
+        var payload = await response.Content.ReadFromJsonAsync<FileImportCompareResponse>();
+        Assert.NotNull(payload);
+        Assert.Empty(payload.FileErrors);
+
+        // 39 Promerica rows + however many the Cuscatlán sample has (9-14 depending on FS order)
+        var cuscatlanRows = payload.PdfRows.Count - 39;
+        Assert.InRange(cuscatlanRows, 9, 14);
+        Assert.Equal(Enumerable.Range(0, payload.PdfRows.Count), payload.PdfRows.Select(r => r.Index));
+        Assert.Contains(payload.PdfRows, r => r.CardLast4 == "3326");
+        Assert.Contains(payload.PdfRows, r => r.CardLast4 == "4502");
+    }
+
+    [Fact]
+    public async Task CompareExcel_UnrecognizedLayout_ReportsFileError()
+    {
+        // A syntactically valid xlsx that matches neither bank layout
+        using var ms = new MemoryStream();
+        using (var wb = new ClosedXML.Excel.XLWorkbook())
+        {
+            var ws = wb.AddWorksheet("Sheet1");
+            ws.Cell(1, 1).Value = "Totally different layout";
+            wb.SaveAs(ms);
+        }
+
+        var client = CreateClientWithStubWallet();
+        using var form = new MultipartFormDataContent();
+        form.Add(new StringContent("acct-1"), "accountId");
+        form.Add(new ByteArrayContent(ms.ToArray()), "files", "unknown.xlsx");
+
+        var response = await client.PostAsync("/api/wallet/import/compare-excel", form);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+    }
+
     [Fact]
     public async Task CompareExcel_WithValidFile_ReturnsRowsWithCorrectSigns()
     {

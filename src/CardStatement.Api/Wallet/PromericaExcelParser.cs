@@ -28,11 +28,7 @@ public static class PromericaExcelParser
 
     public static PromericaExcelParseResult Parse(Stream stream)
     {
-        // Copy to a seekable MemoryStream: form-file streams may not support the
-        // seeking that the OpenXML reader requires.
-        using var memory = new MemoryStream();
-        stream.CopyTo(memory);
-        memory.Position = 0;
+        using var memory = ExcelStreamHelper.CopyToSeekable(stream);
 
         XLWorkbook workbook;
         try
@@ -46,32 +42,43 @@ public static class PromericaExcelParser
 
         using (workbook)
         {
-            var sheet = workbook.Worksheets.First();
-
-            var headerRow = FindHeaderRow(sheet);
-            if (headerRow is null)
-            {
-                throw new PromericaExcelParseException("Could not find the transactions header row in the Excel file.");
-            }
-
-            var transactions = new List<PromericaExcelTransaction>();
-            foreach (var row in sheet.Rows(headerRow.RowNumber() + 1, sheet.LastRowUsed()!.RowNumber()))
-            {
-                var tx = TryParseRow(row);
-                if (tx is not null)
-                {
-                    transactions.Add(tx);
-                }
-            }
-
-            if (transactions.Count == 0)
-            {
-                throw new PromericaExcelParseException("No valid transactions found in the Excel file.");
-            }
-
-            return new PromericaExcelParseResult(transactions);
+            return ParseWorkbook(workbook);
         }
     }
+
+    internal static PromericaExcelParseResult ParseWorkbook(XLWorkbook workbook)
+    {
+        var sheet = workbook.Worksheets.First();
+
+        var headerRow = FindHeaderRow(sheet);
+        if (headerRow is null)
+        {
+            throw new PromericaExcelParseException("Could not find the transactions header row in the Excel file.");
+        }
+
+        var transactions = new List<PromericaExcelTransaction>();
+        foreach (var row in sheet.Rows(headerRow.RowNumber() + 1, sheet.LastRowUsed()!.RowNumber()))
+        {
+            var tx = TryParseRow(row);
+            if (tx is not null)
+            {
+                transactions.Add(tx);
+            }
+        }
+
+        if (transactions.Count == 0)
+        {
+            throw new PromericaExcelParseException("No valid transactions found in the Excel file.");
+        }
+
+        return new PromericaExcelParseResult(transactions);
+    }
+
+    /// <summary>
+    /// True when the sheet's header row matches the Promerica layout ("Fecha Movimiento" in column A).
+    /// Used by the bank auto-detector.
+    /// </summary>
+    internal static bool Matches(IXLWorksheet sheet) => FindHeaderRow(sheet) is not null;
 
     private static IXLRow? FindHeaderRow(IXLWorksheet sheet)
     {
