@@ -1,7 +1,7 @@
 using CardStatement.Core.Categorization;
 using CardStatement.Core.Labels;
 using CardStatement.Core.Models;
-using CardStatement.Core.Parsing;
+using CardStatement.Core.Banks.Bac;
 using CardStatement.Core.Pdf;
 using CardStatement.Core.Reconciliation;
 using CardStatement.Core.Result;
@@ -47,7 +47,7 @@ public class SamplePipelineTests
         File.Exists(SamplePath).Should().BeTrue($"sample PDF must exist at {Path.GetFullPath(SamplePath)}");
 
         var extractor = new PdfPigExtractor();
-        var parser = new StatementParser();
+        var parser = new BacStatementParser();
         var reconciler = new Reconciler();
         var statement = reconciler.Reconcile(parser.Parse(extractor.Extract(SamplePath)));
 

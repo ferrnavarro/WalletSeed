@@ -25,10 +25,10 @@ public static class ExtractionFailureMapper
             ));
         }
 
-        if (ex is UnrecognizedLayoutException)
+        if (ex is UnrecognizedLayoutException || ex is CardStatement.Core.Banks.Exceptions.NoBankMatchedException)
         {
             return Results.UnprocessableEntity(new ExtractionErrorResponse(
-                new ErrorBody(ErrorCodes.UnrecognizedLayout, "We couldn't recognize this as a BAC Credomatic statement.")
+                new ErrorBody(ErrorCodes.UnrecognizedLayout, "We couldn't recognize this statement layout.")
             ));
         }
 

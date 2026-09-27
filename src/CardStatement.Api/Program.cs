@@ -1,12 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using CardStatement.Core.Abstractions;
-using CardStatement.Core.Parsing;
-using CardStatement.Core.Pdf;
-using CardStatement.Core.Reconciliation;
+using CardStatement.Core.Registration;
+using CardStatement.Core.Banks.Bac;
 
 using CardStatement.Api.Endpoints;
 using CardStatement.Api.Contracts;
+using CardStatement.Api.Wallet;
+using CardStatement.Api.Wallet.Registration;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -17,10 +18,10 @@ builder.Logging.ClearProviders().AddSimpleConsole(o =>
 });
 // R9 Logging Policy Constraint: PDF bytes and full transaction descriptions MUST NOT be logged at default level.
 
-// T012: Register CardStatement.Core services with DI
-builder.Services.AddSingleton<IPdfExtractor, PdfPigExtractor>();
-builder.Services.AddSingleton<IStatementParser, StatementParser>();
-builder.Services.AddSingleton<IReconciler, Reconciler>();
+// Register CardStatement.Core services with DI
+builder.Services.AddCardStatementCore();
+builder.Services.AddBacBank();
+builder.Services.AddWalletIntegration(builder.Configuration);
 
 // T013: Configure System.Text.Json options
 builder.Services.ConfigureHttpJsonOptions(o =>
@@ -49,6 +50,10 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// Eagerly resolve BankRegistry to surface startup failures and log registered banks
+var registry = app.Services.GetRequiredService<IBankRegistry>();
+app.Logger.LogInformation("Registered banks: {Banks}", string.Join(", ", registry.Providers.Select(p => $"{p.Info.Id} ({p.Info.DisplayName})")));
+
 app.UseExceptionHandler(exceptionHandlerApp =>
 {
     exceptionHandlerApp.Run(async context =>
@@ -68,6 +73,7 @@ app.UseExceptionHandler(exceptionHandlerApp =>
 app.UseCors("frontend");
 
 app.MapExtract();
+app.MapWalletImport();
 
 app.MapGet("/", () => "WalletSeed Statement Extraction API is running.");
 

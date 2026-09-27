@@ -56,6 +56,10 @@ public sealed class ExtractEndpointTests : IClassFixture<WebApiFactory>
         result.Statement.Period.IssueDate.ToString("yyyy-MM-dd").Should().Be(expected.Period.IssueDate);
         result.Statement.Period.CutoffDate.ToString("yyyy-MM-dd").Should().Be(expected.Period.CutoffDate);
         result.Statement.PageCount.Should().Be(expected.PageCount);
+
+        result.Bank.Should().NotBeNull();
+        result.Bank.Id.Should().Be("bac");
+        result.Bank.DisplayName.Should().Be("BAC Credomatic (El Salvador)");
     }
 
     [Fact]

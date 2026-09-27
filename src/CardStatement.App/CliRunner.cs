@@ -1,8 +1,8 @@
 using CardStatement.App.Output;
 using CardStatement.Core.Models;
-using CardStatement.Core.Parsing;
 using CardStatement.Core.Pdf;
 using CardStatement.Core.Reconciliation;
+using CardStatement.Core.Banks.Bac;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -101,8 +101,8 @@ internal static class DebugDump
     public static int DumpRows(string pdfPath, int? pageFilter)
     {
         var extractor = new PdfPigExtractor();
-        var locator = new TransactionTableLocator();
-        var builder = new RowBuilder();
+        var locator = new BacTransactionTableLocator();
+        var builder = new BacRowBuilder();
 
         var doc = extractor.Extract(pdfPath);
         var byPage = doc.Words.GroupBy(w => w.PageNumber)
@@ -128,7 +128,7 @@ internal static class DebugDump
     public static int DumpParsed(string pdfPath)
     {
         var extractor = new PdfPigExtractor();
-        var parser = new StatementParser();
+        var parser = new BacStatementParser();
         var reconciler = new Reconciler();
 
         var doc = extractor.Extract(pdfPath);

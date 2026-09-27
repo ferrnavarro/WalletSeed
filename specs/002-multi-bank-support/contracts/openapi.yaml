@@ -1,0 +1,361 @@
+openapi: 3.1.0
+info:
+  title: WalletSeed Statement Extraction API
+  version: 0.2.0
+  description: |
+    HTTP API for the WalletSeed multi-bank credit-card statement parser.
+
+    This contract is the multi-bank evolution of `001-pdf-extract-web`'s
+    OpenAPI surface. Every change versus 0.1.0 is **additive**:
+
+      * `ExtractedStatementResponse` gains one new required field, `bank`,
+        appended as the last property of the object (so existing JSON key
+        order is preserved — see SC-002 in spec `002-multi-bank-support`).
+      * No fields are renamed, re-typed, re-ordered, or removed.
+      * The error-code enum is **unchanged** (FR-010). A PDF that is not
+        recognized by any registered bank surfaces as `UNRECOGNIZED_LAYOUT`,
+        the same code single-bank 0.1.0 returned for an unrecognized BAC
+        layout.
+      * No new endpoints, no new request fields, no new HTTP statuses.
+
+    The backend selects which registered bank to invoke by inspecting the
+    uploaded PDF's content (FR-004); the client does not send a bank hint
+    and does not need to know about banks at all.
+
+    Out of scope: LLM categorization, label resolution, persistence,
+    authentication, multi-file uploads, frontend changes, and any new
+    concrete bank besides BAC Credomatic.
+
+servers:
+  - url: http://localhost:5080
+    description: Local development
+
+paths:
+  /api/statements/extract:
+    post:
+      summary: Extract transactions from a credit-card statement PDF (auto-detected bank)
+      description: |
+        Accepts a single PDF file via `multipart/form-data` (`file` field)
+        and returns the parsed statement on success, or a structured error.
+
+        The endpoint is stateless: uploaded bytes are not persisted past
+        the request lifetime.
+
+        The response identifies which registered bank produced the parse
+        via the `bank` field, so a client (now or in the future) can show
+        "extracted from <bank.displayName>" without sending a bank hint.
+
+        Behavior for the existing single registered bank (BAC Credomatic)
+        is byte-for-byte identical to API 0.1.0 on all pre-existing
+        fields — the only difference is the additive `bank` field.
+      operationId: extractStatement
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file]
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: The PDF to parse. Max 25 MB.
+      responses:
+        '200':
+          description: Statement parsed successfully.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractedStatementResponse'
+        '400':
+          description: |
+            Client request is malformed:
+              - `INVALID_FILE_TYPE` — not a PDF (content-type or magic-byte check failed)
+              - `EMPTY_FILE` — uploaded file is empty
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractionErrorResponse'
+        '413':
+          description: |
+            `FILE_TOO_LARGE` — file exceeds the 25 MB cap.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractionErrorResponse'
+        '422':
+          description: |
+            Request well-formed but content cannot be processed:
+              - `PASSWORD_PROTECTED` — PDF is encrypted
+              - `NO_TEXT_EXTRACTABLE` — PDF has no machine-readable text (scanned/image-only)
+              - `UNRECOGNIZED_LAYOUT` — no registered bank claimed the PDF, OR the
+                selected bank's parser failed to produce a valid statement. The
+                client cannot distinguish these two cases by error code (by design);
+                they are logged distinctly server-side (FR-018).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractionErrorResponse'
+        '500':
+          description: |
+            `PARSE_FAILED` — unexpected server error. Details are NOT included
+            in the response; they are logged server-side only.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtractionErrorResponse'
+
+components:
+  schemas:
+
+    ExtractedStatementResponse:
+      type: object
+      required:
+        - statement
+        - sections
+        - totals
+        - reconciliationStatus
+        - needsReviewCount
+        - unmappedCards
+        - bank
+      properties:
+        statement:
+          $ref: '#/components/schemas/StatementHeader'
+        sections:
+          type: array
+          items:
+            $ref: '#/components/schemas/CardholderSection'
+        totals:
+          $ref: '#/components/schemas/StatementTotals'
+        reconciliationStatus:
+          $ref: '#/components/schemas/ReconciliationStatus'
+        needsReviewCount:
+          type: integer
+          minimum: 0
+        unmappedCards:
+          type: array
+          description: |
+            Card last-4 values that the (future) label-resolution step couldn't
+            map. **Always empty `[]` in this iteration** — label resolution is
+            out of scope for spec 001/002. Retained for forward compatibility.
+          items:
+            type: string
+            pattern: '^[0-9]{4}$'
+        bank:
+          $ref: '#/components/schemas/BankInfo'
+          description: |
+            Identifies the registered bank that produced this extraction. **New
+            in 0.2.0** — additive field; clients written against 0.1.0 may
+            ignore it. Always present on a 200 response. The selection is
+            deterministic for a given input PDF (FR-012, SC-008).
+
+    BankInfo:
+      type: object
+      description: |
+        Identifier and display name of the registered bank that recognized
+        and parsed the uploaded PDF.
+      required: [id, displayName]
+      properties:
+        id:
+          type: string
+          pattern: '^[a-z0-9][a-z0-9-]{0,31}$'
+          description: |
+            Stable machine-readable bank identifier. Lowercase ASCII letters,
+            digits, and hyphens; 1–32 characters. Constant across releases
+            for a given bank; renaming is a breaking change.
+          example: "bac"
+        displayName:
+          type: string
+          description: Human-readable bank name, may include accents and qualifiers.
+          example: "BAC Credomatic (El Salvador)"
+
+    StatementHeader:
+      type: object
+      required: [cardType, maskedAccount, period, pageCount]
+      properties:
+        cardType:
+          type: string
+          example: "VISA INFINITE BLACK"
+        maskedAccount:
+          type: string
+          example: "4593-78XX-XXXX-2145"
+        period:
+          $ref: '#/components/schemas/StatementPeriod'
+        pageCount:
+          type: integer
+          minimum: 1
+
+    StatementPeriod:
+      type: object
+      required: [issueDate, cutoffDate]
+      properties:
+        issueDate:
+          type: string
+          format: date
+        cutoffDate:
+          type: string
+          format: date
+
+    CardholderSection:
+      type: object
+      required:
+        - cardLast4
+        - rawName
+        - transactions
+        - totals
+        - reconciliationStatus
+      properties:
+        cardLast4:
+          type: string
+          pattern: '^[0-9]{4}$'
+        rawName:
+          type: string
+          example: "FERNANDO MAGAÑA"
+        transactions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transaction'
+        totals:
+          $ref: '#/components/schemas/SectionTotals'
+        reconciliationStatus:
+          $ref: '#/components/schemas/ReconciliationStatus'
+
+    Transaction:
+      type: object
+      required:
+        - date
+        - postingDate
+        - referenceNumber
+        - sequenceCode
+        - rowType
+        - description
+        - amount
+        - direction
+        - cardLast4
+        - needsReview
+        - categoryId
+        - categoryName
+        - labelId
+        - labelName
+        - labelUnmapped
+      properties:
+        date:
+          type: string
+          format: date
+          description: Transaction date with year derived from statement period.
+        postingDate:
+          type: string
+          format: date
+        referenceNumber:
+          type: string
+          description: Preserved as string to keep leading zeros (e.g. "00000605").
+        sequenceCode:
+          type: string
+          pattern: '^[CXP][0-9]+$'
+          example: "C011"
+        rowType:
+          type: string
+          enum: [purchase, financing, payment, adjustment]
+        description:
+          type: string
+          description: Lightly-trimmed raw merchant description as it appears in the PDF.
+        amount:
+          type: number
+          minimum: 0
+          description: Always positive. Direction carries the sign meaning.
+        direction:
+          type: string
+          enum: [income, expense]
+          description: |
+            Derived **exclusively** from which column the amount appeared in,
+            per the issuing bank's own column semantics. Never inferred from
+            the merchant text or sequence code.
+        cardLast4:
+          type: string
+          pattern: '^[0-9]{4}$'
+        needsReview:
+          type: boolean
+        categoryId:
+          type: [string, "null"]
+          format: uuid
+          description: Always `null` in this MVP. Populated by future enrichment spec.
+        categoryName:
+          type: [string, "null"]
+          description: Always `null` in this MVP.
+        labelId:
+          type: [string, "null"]
+          format: uuid
+          description: Always `null` in this MVP.
+        labelName:
+          type: [string, "null"]
+          description: Always `null` in this MVP.
+        labelUnmapped:
+          type: boolean
+          description: Always `false` in this MVP (no label resolution attempted).
+
+    SectionTotals:
+      type: object
+      required: [computedCharges, computedCredits, printedCharges, printedCredits]
+      properties:
+        computedCharges:
+          type: number
+          minimum: 0
+          description: Sum of `amount` where `direction == expense` in this section.
+        computedCredits:
+          type: number
+          minimum: 0
+          description: Sum of `amount` where `direction == income` in this section.
+        printedCharges:
+          type: [number, "null"]
+          description: Value from the section's printed subtotal line, `null` if absent.
+        printedCredits:
+          type: [number, "null"]
+
+    StatementTotals:
+      type: object
+      required: [computedExpense, computedIncome, printedExpense, printedIncome]
+      properties:
+        computedExpense:
+          type: number
+          minimum: 0
+        computedIncome:
+          type: number
+          minimum: 0
+        printedExpense:
+          type: [number, "null"]
+          description: From the statement's printed total line, `null` if absent.
+        printedIncome:
+          type: [number, "null"]
+
+    ReconciliationStatus:
+      type: string
+      enum: [ok, needsReview]
+
+    ExtractionErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: |
+                Stable error code. The full enum is preserved from 0.1.0 — no
+                new codes are introduced for the multi-bank refactor (FR-010).
+              enum:
+                - INVALID_FILE_TYPE
+                - EMPTY_FILE
+                - FILE_TOO_LARGE
+                - PASSWORD_PROTECTED
+                - NO_TEXT_EXTRACTABLE
+                - UNRECOGNIZED_LAYOUT
+                - PARSE_FAILED
+            message:
+              type: string
+              description: |
+                Human-readable, safe to display directly to the user. Generalized
+                from BAC-specific wording in 0.1.0 (e.g. for `UNRECOGNIZED_LAYOUT`,
+                no longer mentions BAC by name).

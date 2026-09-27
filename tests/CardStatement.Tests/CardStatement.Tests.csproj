@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\CardStatement.Core\CardStatement.Core.csproj" />
     <ProjectReference Include="..\..\src\CardStatement.App\CardStatement.App.csproj" />
+    <ProjectReference Include="..\..\src\CardStatement.Api\CardStatement.Api.csproj" />
   </ItemGroup>
 
 </Project>

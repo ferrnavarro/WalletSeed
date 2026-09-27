@@ -15,47 +15,15 @@ public static class ExtractEndpoint
         app.MapPost("/api/statements/extract", async (
             IFormFile file,
             IPdfExtractor pdf,
-            IStatementParser parser,
+            IBankResolver resolver,
             IReconciler reconciler,
             IConfiguration config,
             ILogger<Program> log) =>
         {
-            // T063: Guard file null or empty
-            if (file is null || file.Length == 0)
+            var guardFailure = PdfUploadGuard.Check(file, config, log);
+            if (guardFailure is not null)
             {
-                return Results.BadRequest(new ExtractionErrorResponse(
-                    new ErrorBody(ErrorCodes.EmptyFile, "The selected file is empty.")
-                ));
-            }
-
-            // T063: Guard file size limit
-            var maxBytes = config.GetValue<long>("Upload:MaxBytes");
-            if (file.Length > maxBytes)
-            {
-                return Results.Json(new ExtractionErrorResponse(
-                    new ErrorBody(ErrorCodes.FileTooLarge, "This file exceeds the 25 MB limit.")
-                ), statusCode: StatusCodes.Status413PayloadTooLarge);
-            }
-
-            // T064: Magic-byte sniff %PDF-
-            try
-            {
-                using var sniffStream = file.OpenReadStream();
-                byte[] buffer = new byte[5];
-                int read = sniffStream.Read(buffer, 0, 5);
-                if (read < 5 || buffer[0] != 0x25 || buffer[1] != 0x50 || buffer[2] != 0x44 || buffer[3] != 0x46 || buffer[4] != 0x2d)
-                {
-                    return Results.BadRequest(new ExtractionErrorResponse(
-                        new ErrorBody(ErrorCodes.InvalidFileType, "Please upload a PDF file.")
-                    ));
-                }
-            }
-            catch (Exception ex)
-            {
-                log.LogError(ex, "Failed to read magic bytes from upload stream");
-                return Results.BadRequest(new ExtractionErrorResponse(
-                    new ErrorBody(ErrorCodes.InvalidFileType, "Please upload a PDF file.")
-                ));
+                return guardFailure;
             }
 
             // Log exit metadata without logging PII (R9 Constraint)
@@ -75,16 +43,8 @@ public static class ExtractEndpoint
                     throw new NoTextExtractableException("No text words found in PDF");
                 }
 
-                // Parse statement
-                CardStatement.Core.Models.Statement statement;
-                try
-                {
-                    statement = parser.Parse(words);
-                }
-                catch (Exception parseEx)
-                {
-                    throw new UnrecognizedLayoutException("Failed to parse statement layout", parseEx);
-                }
+                // Resolve statement and bank
+                var (bank, statement) = resolver.Resolve(words);
                 
                 // US3: Check if unrecognized layout (no cardholder sections and no transactions)
                 if (statement.Sections == null || statement.Sections.Count == 0 || !statement.Sections.SelectMany(s => s.Transactions).Any())
@@ -93,8 +53,9 @@ public static class ExtractEndpoint
                 }
 
                 var reconciled = reconciler.Reconcile(statement);
-                var response = StatementMapper.ToResponse(reconciled);
+                var response = StatementMapper.ToResponse(reconciled, bank);
 
+                log.LogInformation("Bank selected: {BankId}", bank.Id);
                 log.LogInformation("Successfully processed statement. Pages: {PageCount}, Sections: {SectionCount}", 
                     reconciled.PageCount, reconciled.Sections.Count);
 

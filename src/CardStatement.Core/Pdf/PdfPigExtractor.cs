@@ -6,11 +6,15 @@ namespace CardStatement.Core.Pdf;
 
 public sealed class PdfPigExtractor : IPdfExtractor
 {
+    private static readonly object LockObject = new();
+
     public PdfDocumentWords Extract(string pdfPath)
     {
-        using var doc = PdfDocument.Open(pdfPath);
-        var words = new List<PdfWord>(capacity: 4096);
-        var pageCount = doc.NumberOfPages;
+        lock (LockObject)
+        {
+            using var doc = PdfDocument.Open(pdfPath);
+            var words = new List<PdfWord>(capacity: 4096);
+            var pageCount = doc.NumberOfPages;
 
         for (var pageNo = 1; pageNo <= pageCount; pageNo++)
         {
@@ -29,5 +33,6 @@ public sealed class PdfPigExtractor : IPdfExtractor
         }
 
         return new PdfDocumentWords(pageCount, words);
+        }
     }
 }

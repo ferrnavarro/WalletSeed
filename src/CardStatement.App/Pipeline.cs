@@ -11,7 +11,7 @@ namespace CardStatement.App;
 public sealed class Pipeline
 {
     private readonly IPdfExtractor _pdf;
-    private readonly IStatementParser _parser;
+    private readonly IBankResolver _resolver;
     private readonly IReconciler _reconciler;
     private readonly ICategoryApi _categoryApi;
     private readonly ILabelsApi _labelsApi;
@@ -22,7 +22,7 @@ public sealed class Pipeline
 
     public Pipeline(
         IPdfExtractor pdf,
-        IStatementParser parser,
+        IBankResolver resolver,
         IReconciler reconciler,
         ICategoryApi categoryApi,
         ILabelsApi labelsApi,
@@ -32,7 +32,7 @@ public sealed class Pipeline
         ILogger<Pipeline> logger)
     {
         _pdf = pdf;
-        _parser = parser;
+        _resolver = resolver;
         _reconciler = reconciler;
         _categoryApi = categoryApi;
         _labelsApi = labelsApi;
@@ -48,7 +48,8 @@ public sealed class Pipeline
         var words = _pdf.Extract(pdfPath);
 
         _logger.LogInformation("Parsing statement ({Pages} pages, {Words} words).", words.PageCount, words.Words.Count);
-        var statement = _reconciler.Reconcile(_parser.Parse(words));
+        var (bank, statement) = _resolver.Resolve(words);
+        var reconciled = _reconciler.Reconcile(statement);
 
         _logger.LogInformation("Fetching categories...");
         var taxonomy = await _categoryApi.GetAllAsync(ct).ConfigureAwait(false);
@@ -69,9 +70,9 @@ public sealed class Pipeline
         var categorizer = new LlmCategorizer(_llm, fixedResolver, taxonomy, _catOpts.Value);
 
         var builder = new ResultBuilder(labelResolver, categorizer);
-        var result = await builder.BuildAsync(statement, ct).ConfigureAwait(false);
+        var result = await builder.BuildAsync(reconciled, ct).ConfigureAwait(false);
 
-        if (statement.ReconciliationStatus == ReconciliationStatus.Mismatch)
+        if (reconciled.ReconciliationStatus == ReconciliationStatus.Mismatch)
             _logger.LogWarning("Reconciliation mismatch — parsed totals do not match printed TOTAL.");
 
         return result;
