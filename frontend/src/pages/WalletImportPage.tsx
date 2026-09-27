@@ -203,7 +203,16 @@ export default function WalletImportPage() {
       }
       section.rows.push(row);
     }
+    // Display ordering within each section: newest date first. Indices preserved.
+    for (const section of groupedSections) {
+      section.rows.sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : a.index - b.index));
+    }
   }
+
+  // Display ordering for existing wallet records: newest date first.
+  const sortedWalletRows = state.comparison
+    ? [...state.comparison.walletRows].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)))
+    : [];
 
   const toggleSectionCollapse = (sectionKey: string) => {
     setCollapsedSections((prev) => ({
@@ -468,7 +477,7 @@ export default function WalletImportPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {state.comparison.walletRows.map((wRow) => {
+                      {sortedWalletRows.map((wRow) => {
                         const isIncome = wRow.signedAmount > 0;
                         return (
                           <tr key={wRow.id} className="transaction-row">

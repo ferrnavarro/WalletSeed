@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import Nav from './components/Nav';
 import StatementExtractPage from './pages/StatementExtractPage';
 import WalletImportPage from './pages/WalletImportPage';
+import CsvWalletImportPage from './pages/CsvWalletImportPage';
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
           <Routes>
             <Route path="/" element={<StatementExtractPage />} />
             <Route path="/wallet-import" element={<WalletImportPage />} />
+            <Route path="/csv-import" element={<CsvWalletImportPage />} />
           </Routes>
         </main>
       </div>

@@ -1,4 +1,4 @@
-import type { WalletErrorResponse, WalletAccount, WalletCategory, CompareResponse, SubmitRequest, SubmitResponse } from '../types/wallet';
+import type { WalletErrorResponse, WalletAccount, WalletCategory, CompareResponse, CsvCompareResponse, SubmitRequest, SubmitResponse } from '../types/wallet';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5080';
 
@@ -75,6 +75,29 @@ export async function compare(file: File, accountId: string): Promise<WalletResu
     }
 
     return { ok: true, data: await readJson<CompareResponse>(response) };
+  } catch {
+    return { ok: false, error: { code: 'WALLET_UNAVAILABLE', message: 'Unable to reach the wallet API.' }, httpStatus: 503 };
+  }
+}
+
+export async function compareCsv(files: File[], accountId: string): Promise<WalletResult<CsvCompareResponse>> {
+  try {
+    const formData = new FormData();
+    for (const file of files) {
+      formData.append('files', file);
+    }
+    formData.append('accountId', accountId);
+
+    const response = await fetch(`${API_BASE_URL}/api/wallet/import/compare-csv`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      return toErrorResult<CsvCompareResponse>(response.status, await readJson<unknown>(response));
+    }
+
+    return { ok: true, data: await readJson<CsvCompareResponse>(response) };
   } catch {
     return { ok: false, error: { code: 'WALLET_UNAVAILABLE', message: 'Unable to reach the wallet API.' }, httpStatus: 503 };
   }

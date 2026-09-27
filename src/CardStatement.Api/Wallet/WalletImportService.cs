@@ -7,6 +7,17 @@ using Microsoft.Extensions.Options;
 
 namespace CardStatement.Api.Wallet;
 
+public sealed record CsvFileError(string FileName, string Message);
+
+public sealed record CsvCompareResult(
+    CompareResponse Response,
+    IReadOnlyList<CsvFileError> FileErrors);
+
+public sealed class CsvNoValidFilesException : Exception
+{
+    public CsvNoValidFilesException(string message) : base(message) { }
+}
+
 public sealed class WalletImportService
 {
     private readonly IPdfExtractor _pdfExtractor;
@@ -118,6 +129,96 @@ public sealed class WalletImportService
         var unmapped = _labelMapping.FindUnmapped(pdfRows.Select(r => r.CardholderSectionRawName));
 
         return new CompareResponse(window, new WalletAccountDto(account.Id, account.Name, account.CurrencyCode, account.AccountType), categories.Select(c => new WalletCategoryDto(c.Id, c.Name, c.Color)).ToList(), pdfRowDtos, walletRowDtos, unmapped.ToList());
+    }
+
+    public async Task<CsvCompareResult> CompareCsvAsync(IReadOnlyList<(string FileName, Stream Stream)> files, string accountId, CancellationToken ct = default)
+    {
+        var pdfRows = new List<PdfRowInternal>();
+        var fileErrors = new List<CsvFileError>();
+        var index = 0;
+
+        foreach (var (fileName, stream) in files)
+        {
+            try
+            {
+                var result = BacCsvParser.Parse(stream);
+                foreach (var tx in result.Transactions)
+                {
+                    // CSV: positive Dollars = expense → Wallet: negative signedAmount
+                    pdfRows.Add(new PdfRowInternal(
+                        index++,
+                        tx.Date,
+                        -tx.DollarsAmount,
+                        "USD",
+                        tx.Description,
+                        null,
+                        string.Empty,
+                        result.CardLast4));
+                }
+            }
+            catch (BacCsvParseException ex)
+            {
+                _logger.LogWarning(ex, "Failed to parse CSV file {FileName}", fileName);
+                fileErrors.Add(new CsvFileError(fileName, ex.Message));
+            }
+        }
+
+        if (pdfRows.Count == 0)
+        {
+            throw new CsvNoValidFilesException("None of the uploaded CSV files could be parsed.");
+        }
+
+        var minDate = pdfRows.Min(r => r.Date);
+        var maxDate = pdfRows.Max(r => r.Date);
+        var window = new StatementWindowDto(minDate.AddDays(-5), maxDate.AddDays(5), minDate, maxDate);
+
+        var accountsTask = _walletClient.ListAccountsAsync(ct);
+        var categoriesTask = _walletClient.ListCategoriesAsync(ct);
+        var recordsTask = _walletClient.ListRecordsAsync(accountId, window.From, window.To, ct);
+
+        await Task.WhenAll(accountsTask, categoriesTask, recordsTask);
+
+        var accounts = (await accountsTask).Where(a => !a.Archived).ToList();
+        var categories = (await categoriesTask).ToList();
+        var records = (await recordsTask).ToList();
+
+        var account = accounts.FirstOrDefault(a => a.Id == accountId) ?? accounts.FirstOrDefault() ?? new WalletAccount(accountId, "Unknown", "USD", "CreditCard", false);
+        var matches = DuplicateMatcher.Match(pdfRows, records);
+
+        var pdfRowDtos = pdfRows.Select(row => new PdfRowDto(
+            row.Index,
+            row.Date,
+            row.SignedAmount,
+            row.Currency,
+            row.Description,
+            null,
+            row.CardholderSectionRawName,
+            row.CardLast4,
+            matches[row.Index].ToList(),
+            matches[row.Index].Count == 0,
+            !string.Equals(account.CurrencyCode, row.Currency, StringComparison.Ordinal),
+            Array.Empty<string>(),
+            Array.Empty<string>())).ToList();
+
+        var walletRowDtos = records.OrderBy(r => r.RecordDate).ThenBy(r => r.Id, StringComparer.Ordinal).Select(r => new WalletRowDto(
+            r.Id,
+            r.RecordDate,
+            r.SignedAmount,
+            r.CurrencyCode,
+            r.Note,
+            r.CounterParty,
+            r.CategoryName,
+            pdfRowDtos.Where(pr => pr.MatchedWalletRecordIds.Contains(r.Id)).Select(pr => pr.Index).OrderBy(i => i).ToArray())).ToList();
+
+        var response = new CompareResponse(
+            window,
+            new WalletAccountDto(account.Id, account.Name, account.CurrencyCode, account.AccountType),
+            categories.Select(c => new WalletCategoryDto(c.Id, c.Name, c.Color)).ToList(),
+            pdfRowDtos,
+            walletRowDtos,
+            Array.Empty<string>());
+
+        return new CsvCompareResult(response, fileErrors);
     }
 
     public async Task<SubmitResponse> SubmitAsync(SubmitRequest req, CancellationToken ct = default)

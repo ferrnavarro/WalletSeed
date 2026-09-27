@@ -87,6 +87,15 @@ export interface SubmitResponse {
   outcomes: SubmitOutcome[];
 }
 
+export interface CsvFileError {
+  fileName: string;
+  message: string;
+}
+
+export interface CsvCompareResponse extends CompareResponse {
+  fileErrors: CsvFileError[];
+}
+
 export interface WalletErrorResponse {
   error: {
     code: WalletErrorCode;

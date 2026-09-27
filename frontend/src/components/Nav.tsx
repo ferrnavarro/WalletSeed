@@ -9,6 +9,9 @@ export default function Nav() {
       <NavLink to="/wallet-import" className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}>
         Wallet Import
       </NavLink>
+      <NavLink to="/csv-import" className={({ isActive }) => `nav-link${isActive ? ' nav-link--active' : ''}`}>
+        CSV Import
+      </NavLink>
     </nav>
   );
 }
