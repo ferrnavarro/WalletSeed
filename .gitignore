@@ -30,6 +30,9 @@ response*.json
 *.pdf
 samples/*.pdf
 
+# Real bank statement samples (personal financial data) — tests use synthetic fixtures
+samples/
+
 # Local agent metadata
 .claude/
 .agents/
