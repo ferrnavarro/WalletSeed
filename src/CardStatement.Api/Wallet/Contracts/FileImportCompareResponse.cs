@@ -1,12 +1,12 @@
 namespace CardStatement.Api.Wallet.Contracts;
 
-public sealed record CsvCompareResponse(
+public sealed record FileImportCompareResponse(
     StatementWindowDto Window,
     WalletAccountDto Account,
     IReadOnlyList<WalletCategoryDto> Categories,
     IReadOnlyList<PdfRowDto> PdfRows,
     IReadOnlyList<WalletRowDto> WalletRows,
     IReadOnlyList<string> UnmappedSections,
-    IReadOnlyList<CsvFileErrorDto> FileErrors);
+    IReadOnlyList<FileImportErrorDto> FileErrors);
 
-public sealed record CsvFileErrorDto(string FileName, string Message);
+public sealed record FileImportErrorDto(string FileName, string Message);

@@ -88,58 +88,16 @@ public static class WalletImportEndpoint
             WalletImportService service,
             ILogger<Program> log,
             CancellationToken ct) =>
-        {
-            try
-            {
-                var form = await request.ReadFormAsync(ct);
-                var files = form.Files;
-                var accountId = form["accountId"].ToString();
+            await CompareImportFiles(request, service, log, (s, f, a, token) => s.CompareCsvAsync(f, a, token), ct))
+        .DisableAntiforgery();
 
-                if (files.Count == 0)
-                {
-                    return Results.BadRequest(new WalletErrorResponse(new ErrorBody(WalletErrorCodes.Rejected, "At least one CSV file is required.")));
-                }
-
-                if (string.IsNullOrWhiteSpace(accountId))
-                {
-                    return Results.BadRequest(new WalletErrorResponse(new ErrorBody(WalletErrorCodes.Rejected, "accountId is required.")));
-                }
-
-                var fileStreams = files.Select(f => (f.FileName, Stream: f.OpenReadStream())).ToList();
-                try
-                {
-                    var result = await service.CompareCsvAsync(fileStreams, accountId, ct);
-                    return Results.Ok(new CsvCompareResponse(
-                        result.Response.Window,
-                        result.Response.Account,
-                        result.Response.Categories,
-                        result.Response.PdfRows,
-                        result.Response.WalletRows,
-                        result.Response.UnmappedSections,
-                        result.FileErrors.Select(e => new CsvFileErrorDto(e.FileName, e.Message)).ToList()));
-                }
-                finally
-                {
-                    foreach (var (_, stream) in fileStreams)
-                    {
-                        await stream.DisposeAsync();
-                    }
-                }
-            }
-            catch (CsvNoValidFilesException ex)
-            {
-                return Results.BadRequest(new WalletErrorResponse(new ErrorBody(WalletErrorCodes.Rejected, ex.Message)));
-            }
-            catch (WalletApiException ex)
-            {
-                return WalletErrorMapper.ToResult(ex);
-            }
-            catch (Exception ex)
-            {
-                log.LogError(ex, "CSV compare endpoint failed with exception");
-                return Results.Json(new WalletErrorResponse(new ErrorBody(WalletErrorCodes.Rejected, "Something went wrong while reading the CSV files. Please try again.")), statusCode: StatusCodes.Status500InternalServerError);
-            }
-        })
+        app.MapPost("/api/wallet/import/compare-excel", async Task<IResult> (
+            HttpRequest request,
+            IWalletApiClient walletClient,
+            WalletImportService service,
+            ILogger<Program> log,
+            CancellationToken ct) =>
+            await CompareImportFiles(request, service, log, (s, f, a, token) => s.CompareExcelAsync(f, a, token), ct))
         .DisableAntiforgery();
 
         app.MapPost("/api/wallet/import/submit", async Task<IResult> (SubmitRequest request, WalletImportService service, CancellationToken ct) =>
@@ -170,5 +128,64 @@ public static class WalletImportEndpoint
             }
         })
         .DisableAntiforgery();
+    }
+
+    private static async Task<IResult> CompareImportFiles(
+        HttpRequest request,
+        WalletImportService service,
+        ILogger log,
+        Func<WalletImportService, List<(string FileName, Stream Stream)>, string, CancellationToken, Task<FileImportCompareResult>> compare,
+        CancellationToken ct)
+    {
+        try
+        {
+            var form = await request.ReadFormAsync(ct);
+            var files = form.Files;
+            var accountId = form["accountId"].ToString();
+
+            if (files.Count == 0)
+            {
+                return Results.BadRequest(new WalletErrorResponse(new ErrorBody(WalletErrorCodes.Rejected, "At least one file is required.")));
+            }
+
+            if (string.IsNullOrWhiteSpace(accountId))
+            {
+                return Results.BadRequest(new WalletErrorResponse(new ErrorBody(WalletErrorCodes.Rejected, "accountId is required.")));
+            }
+
+            var fileStreams = files.Select(f => (f.FileName, Stream: f.OpenReadStream())).ToList();
+            try
+            {
+                var result = await compare(service, fileStreams, accountId, ct);
+                return Results.Ok(new FileImportCompareResponse(
+                    result.Response.Window,
+                    result.Response.Account,
+                    result.Response.Categories,
+                    result.Response.PdfRows,
+                    result.Response.WalletRows,
+                    result.Response.UnmappedSections,
+                    result.FileErrors.Select(e => new FileImportErrorDto(e.FileName, e.Message)).ToList()));
+            }
+            finally
+            {
+                foreach (var (_, stream) in fileStreams)
+                {
+                    await stream.DisposeAsync();
+                }
+            }
+        }
+        catch (NoValidImportFilesException ex)
+        {
+            return Results.BadRequest(new WalletErrorResponse(new ErrorBody(WalletErrorCodes.Rejected, ex.Message)));
+        }
+        catch (WalletApiException ex)
+        {
+            return WalletErrorMapper.ToResult(ex);
+        }
+        catch (Exception ex)
+        {
+            log.LogError(ex, "File import compare endpoint failed with exception");
+            return Results.Json(new WalletErrorResponse(new ErrorBody(WalletErrorCodes.Rejected, "Something went wrong while reading the uploaded files. Please try again.")), statusCode: StatusCodes.Status500InternalServerError);
+        }
     }
 }

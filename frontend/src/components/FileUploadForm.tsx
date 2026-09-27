@@ -1,13 +1,19 @@
 import React, { useState } from 'react';
 
-interface CsvUploadFormProps {
+interface FileUploadFormProps {
   onSubmit: (files: File[]) => void;
   onLocalError?: (payload: { code: string; message: string }) => void;
 }
 
 const MAX_BYTES = 25 * 1024 * 1024;
+const ACCEPTED_EXTENSIONS = ['.csv', '.xlsx'];
 
-export default function CsvUploadForm({ onSubmit, onLocalError }: CsvUploadFormProps) {
+function isAccepted(file: File): boolean {
+  const name = file.name.toLowerCase();
+  return ACCEPTED_EXTENSIONS.some((ext) => name.endsWith(ext));
+}
+
+export default function FileUploadForm({ onSubmit, onLocalError }: FileUploadFormProps) {
   const [files, setFiles] = useState<File[]>([]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -23,9 +29,8 @@ export default function CsvUploadForm({ onSubmit, onLocalError }: CsvUploadFormP
     }
 
     for (const file of files) {
-      const isCsv = file.type === 'text/csv' || file.name.toLowerCase().endsWith('.csv');
-      if (!isCsv) {
-        onLocalError?.({ code: 'INVALID_FILE_TYPE', message: `"${file.name}" is not a CSV file.` });
+      if (!isAccepted(file)) {
+        onLocalError?.({ code: 'INVALID_FILE_TYPE', message: `"${file.name}" is not a supported file (CSV or Excel).` });
         return;
       }
 
@@ -40,20 +45,20 @@ export default function CsvUploadForm({ onSubmit, onLocalError }: CsvUploadFormP
 
   return (
     <form onSubmit={handleSubmit} className="glass-card upload-form animate-fade-in">
-      <h2>Upload BAC CSV Statements</h2>
-      <p className="form-description">Select one or more BAC Credomatic CSV exports to compare against your Wallet records.</p>
+      <h2>Upload Bank Statement Files</h2>
+      <p className="form-description">Select BAC CSV exports or Promerica Excel (.xlsx) statements to compare against your Wallet records.</p>
 
       <div className="file-input-container">
         <input
           type="file"
-          id="csv-files"
-          accept=".csv,text/csv"
+          id="statement-files"
+          accept=".csv,.xlsx,text/csv"
           multiple
           onChange={handleFileChange}
           className="file-input"
         />
-        <label htmlFor="csv-files" className="file-input-label">
-          {files.length > 0 ? `${files.length} file(s) selected` : 'Choose CSV files...'}
+        <label htmlFor="statement-files" className="file-input-label">
+          {files.length > 0 ? `${files.length} file(s) selected` : 'Choose CSV or Excel files...'}
         </label>
       </div>
 

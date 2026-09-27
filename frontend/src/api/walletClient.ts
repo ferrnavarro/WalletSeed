@@ -1,4 +1,4 @@
-import type { WalletErrorResponse, WalletAccount, WalletCategory, CompareResponse, CsvCompareResponse, SubmitRequest, SubmitResponse } from '../types/wallet';
+import type { WalletErrorResponse, WalletAccount, WalletCategory, CompareResponse, FileImportCompareResponse, SubmitRequest, SubmitResponse } from '../types/wallet';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5080';
 
@@ -80,7 +80,7 @@ export async function compare(file: File, accountId: string): Promise<WalletResu
   }
 }
 
-export async function compareCsv(files: File[], accountId: string): Promise<WalletResult<CsvCompareResponse>> {
+async function postCompareFiles(endpoint: string, files: File[], accountId: string): Promise<WalletResult<FileImportCompareResponse>> {
   try {
     const formData = new FormData();
     for (const file of files) {
@@ -88,19 +88,27 @@ export async function compareCsv(files: File[], accountId: string): Promise<Wall
     }
     formData.append('accountId', accountId);
 
-    const response = await fetch(`${API_BASE_URL}/api/wallet/import/compare-csv`, {
+    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'POST',
       body: formData,
     });
 
     if (!response.ok) {
-      return toErrorResult<CsvCompareResponse>(response.status, await readJson<unknown>(response));
+      return toErrorResult<FileImportCompareResponse>(response.status, await readJson<unknown>(response));
     }
 
-    return { ok: true, data: await readJson<CsvCompareResponse>(response) };
+    return { ok: true, data: await readJson<FileImportCompareResponse>(response) };
   } catch {
     return { ok: false, error: { code: 'WALLET_UNAVAILABLE', message: 'Unable to reach the wallet API.' }, httpStatus: 503 };
   }
+}
+
+export function compareCsv(files: File[], accountId: string): Promise<WalletResult<FileImportCompareResponse>> {
+  return postCompareFiles('/api/wallet/import/compare-csv', files, accountId);
+}
+
+export function compareExcel(files: File[], accountId: string): Promise<WalletResult<FileImportCompareResponse>> {
+  return postCompareFiles('/api/wallet/import/compare-excel', files, accountId);
 }
 
 export async function submit(payload: SubmitRequest): Promise<WalletResult<SubmitResponse>> {

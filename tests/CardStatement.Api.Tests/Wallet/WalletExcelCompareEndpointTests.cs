@@ -8,17 +8,17 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 
 namespace CardStatement.Api.Tests.Wallet;
 
-public class WalletCsvCompareEndpointTests : IClassFixture<WebApiFactory>
+public class WalletExcelCompareEndpointTests : IClassFixture<WebApiFactory>
 {
     private readonly WebApiFactory _factory;
 
-    public WalletCsvCompareEndpointTests(WebApiFactory factory)
+    public WalletExcelCompareEndpointTests(WebApiFactory factory)
     {
         _factory = factory;
     }
 
     private static readonly string SamplesDir = Path.Combine(
-        AppContext.BaseDirectory, "..", "..", "..", "..", "..", "samples", "baccsv");
+        AppContext.BaseDirectory, "..", "..", "..", "..", "..", "samples", "promericaexcel");
 
     private HttpClient CreateClientWithStubWallet()
     {
@@ -60,120 +60,112 @@ public class WalletCsvCompareEndpointTests : IClassFixture<WebApiFactory>
         }).CreateClient();
     }
 
-    [Fact]
-    public async Task CompareCsv_WithValidFiles_ReturnsMergedRows()
+    private static string? SampleFile()
     {
-        var sample1 = Path.GetFullPath(Path.Combine(SamplesDir, "Estado de cuenta.csv"));
-        var sample2 = Path.GetFullPath(Path.Combine(SamplesDir, "Estado de cuenta(1).csv"));
-        if (!File.Exists(sample1) || !File.Exists(sample2)) return;
+        var dir = Path.GetFullPath(SamplesDir);
+        if (!Directory.Exists(dir)) return null;
+        return Directory.GetFiles(dir, "*.xlsx").FirstOrDefault();
+    }
+
+    [Fact]
+    public async Task CompareExcel_WithValidFile_ReturnsRowsWithCorrectSigns()
+    {
+        var sample = SampleFile();
+        if (sample is null) return;
 
         var client = CreateClientWithStubWallet();
         using var form = new MultipartFormDataContent();
         form.Add(new StringContent("acct-1"), "accountId");
-        foreach (var path in new[] { sample1, sample2 })
-        {
-            var bytes = await File.ReadAllBytesAsync(path);
-            var content = new ByteArrayContent(bytes);
-            content.Headers.ContentType = new("text/csv");
-            form.Add(content, "files", Path.GetFileName(path));
-        }
+        var bytes = await File.ReadAllBytesAsync(sample);
+        var content = new ByteArrayContent(bytes);
+        content.Headers.ContentType = new("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+        form.Add(content, "files", Path.GetFileName(sample));
 
-        var response = await client.PostAsync("/api/wallet/import/compare-csv", form);
+        var response = await client.PostAsync("/api/wallet/import/compare-excel", form);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var payload = await response.Content.ReadFromJsonAsync<FileImportCompareResponse>();
         Assert.NotNull(payload);
-        Assert.NotEmpty(payload.PdfRows);
+        Assert.Equal(39, payload.PdfRows.Count);
         Assert.Empty(payload.FileErrors);
 
-        // All rows: currency USD, sign flipped (CSV positive → negative), card last4 2127, empty section name
         Assert.All(payload.PdfRows, row =>
         {
             Assert.Equal("USD", row.Currency);
-            Assert.Equal("2127", row.CardLast4);
             Assert.Equal(string.Empty, row.CardholderSectionRawName);
             Assert.Empty(row.PreviewLabelIds);
         });
 
-        // Sign flip: a CSV expense (positive dollars) appears as negative signedAmount
-        var laPampa = payload.PdfRows.FirstOrDefault(r => r.Description.Contains("LA PAMPA"));
-        Assert.NotNull(laPampa);
-        Assert.True(laPampa!.SignedAmount < 0);
+        // Debitos → negative (row 9: CARGO DE INTERESES, $0.62 debit)
+        var interest = payload.PdfRows.FirstOrDefault(r => r.Description == "CARGO DE INTERESES");
+        Assert.NotNull(interest);
+        Assert.True(interest!.SignedAmount < 0);
+        Assert.Equal("0000", interest.CardLast4); // Tarjeta = "0"
 
-        // Indices are sequential across merged files
+        // Creditos → positive (row 47: "Pago", $2126.28 credit)
+        var payment = payload.PdfRows.FirstOrDefault(r => r.Description == "Pago");
+        Assert.NotNull(payment);
+        Assert.Equal(2126.28m, payment!.SignedAmount);
+
+        // Real description rows come through trimmed (row 11: SELECTOS LAS CASCADAS)
+        var selectos = payload.PdfRows.FirstOrDefault(r => r.Description == "SELECTOS LAS CASCADAS");
+        Assert.NotNull(selectos);
+        Assert.True(selectos!.SignedAmount < 0);
+        Assert.Equal("3326", selectos.CardLast4);
+
+        // Sequential indices; all default-selected (stub returns no wallet records)
         Assert.Equal(Enumerable.Range(0, payload.PdfRows.Count), payload.PdfRows.Select(r => r.Index));
-
-        // No matches (stub returns no records) → all default-selected
         Assert.All(payload.PdfRows, row => Assert.True(row.DefaultSelected));
     }
 
     [Fact]
-    public async Task CompareCsv_WithOneBadFile_ReturnsRowsAndFileError()
+    public async Task CompareExcel_WithOneBadFile_ReturnsRowsAndFileError()
     {
-        var sample1 = Path.GetFullPath(Path.Combine(SamplesDir, "Estado de cuenta.csv"));
-        if (!File.Exists(sample1)) return;
+        var sample = SampleFile();
+        if (sample is null) return;
 
         var client = CreateClientWithStubWallet();
         using var form = new MultipartFormDataContent();
         form.Add(new StringContent("acct-1"), "accountId");
 
-        var bytes = await File.ReadAllBytesAsync(sample1);
+        var bytes = await File.ReadAllBytesAsync(sample);
         var good = new ByteArrayContent(bytes);
-        good.Headers.ContentType = new("text/csv");
-        form.Add(good, "files", Path.GetFileName(sample1));
+        form.Add(good, "files", Path.GetFileName(sample));
 
-        var bad = new ByteArrayContent(Encoding.UTF8.GetBytes("this is not,a valid\nbac,csv file"));
-        bad.Headers.ContentType = new("text/csv");
-        form.Add(bad, "files", "broken.csv");
+        var bad = new ByteArrayContent(Encoding.UTF8.GetBytes("not an excel file"));
+        form.Add(bad, "files", "broken.xlsx");
 
-        var response = await client.PostAsync("/api/wallet/import/compare-csv", form);
+        var response = await client.PostAsync("/api/wallet/import/compare-excel", form);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
         var payload = await response.Content.ReadFromJsonAsync<FileImportCompareResponse>();
         Assert.NotNull(payload);
         Assert.NotEmpty(payload.PdfRows);
         Assert.Single(payload.FileErrors);
-        Assert.Equal("broken.csv", payload.FileErrors[0].FileName);
+        Assert.Equal("broken.xlsx", payload.FileErrors[0].FileName);
     }
 
     [Fact]
-    public async Task CompareCsv_AllFilesBad_Returns400()
+    public async Task CompareExcel_AllFilesBad_Returns400()
     {
         var client = CreateClientWithStubWallet();
         using var form = new MultipartFormDataContent();
         form.Add(new StringContent("acct-1"), "accountId");
         var bad = new ByteArrayContent(Encoding.UTF8.GetBytes("garbage"));
-        bad.Headers.ContentType = new("text/csv");
-        form.Add(bad, "files", "bad.csv");
+        form.Add(bad, "files", "bad.xlsx");
 
-        var response = await client.PostAsync("/api/wallet/import/compare-csv", form);
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var response = await client.PostAsync("/api/wallet/import/compare-excel", form);
+        Assert.True(response.StatusCode == HttpStatusCode.BadRequest, $"Expected 400 but got {response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
     }
 
     [Fact]
-    public async Task CompareCsv_NoFiles_Returns400()
+    public async Task CompareExcel_NoFiles_Returns400()
     {
         var client = CreateClientWithStubWallet();
         using var form = new MultipartFormDataContent();
         form.Add(new StringContent("acct-1"), "accountId");
 
-        var response = await client.PostAsync("/api/wallet/import/compare-csv", form);
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
-    }
-
-    [Fact]
-    public async Task CompareCsv_NoAccountId_Returns400()
-    {
-        var sample1 = Path.GetFullPath(Path.Combine(SamplesDir, "Estado de cuenta.csv"));
-        if (!File.Exists(sample1)) return;
-
-        var client = CreateClientWithStubWallet();
-        using var form = new MultipartFormDataContent();
-        var bytes = await File.ReadAllBytesAsync(sample1);
-        var content = new ByteArrayContent(bytes);
-        form.Add(content, "files", "file.csv");
-
-        var response = await client.PostAsync("/api/wallet/import/compare-csv", form);
+        var response = await client.PostAsync("/api/wallet/import/compare-excel", form);
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 

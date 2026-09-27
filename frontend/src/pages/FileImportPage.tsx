@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react';
-import CsvUploadForm from '../components/CsvUploadForm';
+import FileUploadForm from '../components/FileUploadForm';
 import WalletAccountPicker from '../components/WalletAccountPicker';
 import WalletErrorBanner from '../components/WalletErrorBanner';
 import CategoryDropdown from '../components/CategoryDropdown';
 import SubmitOutcomeList from '../components/SubmitOutcomeList';
 import PerRowPreview from '../components/PerRowPreview';
-import { compareCsv, listAccounts, listCategories, submit } from '../api/walletClient';
-import type { CsvCompareResponse, WalletAccount, WalletCategory, WalletErrorCode } from '../types/wallet';
+import { compareCsv, compareExcel, listAccounts, listCategories, submit } from '../api/walletClient';
+import type { FileImportCompareResponse, WalletAccount, WalletCategory, WalletErrorCode, WalletRow, PdfRow, FileImportError } from '../types/wallet';
 
-interface CsvWalletImportPageState {
+interface FileImportPageState {
   accounts: WalletAccount[];
   categories: WalletCategory[];
   selectedAccountId: string | null;
-  comparison?: CsvCompareResponse;
+  comparison?: FileImportCompareResponse;
   selectedRows: Record<number, boolean>;
   categoryByIndex: Record<number, string | null>;
   error?: { code: WalletErrorCode; message: string };
@@ -22,8 +22,47 @@ interface CsvWalletImportPageState {
   submitting: boolean;
 }
 
-export default function CsvWalletImportPage() {
-  const [state, setState] = useState<CsvWalletImportPageState>({
+function isExcelFile(file: File): boolean {
+  return file.name.toLowerCase().endsWith('.xlsx');
+}
+
+/** Merge multiple compare responses into one, re-basing row indices so they stay unique. */
+function mergeComparisons(responses: FileImportCompareResponse[]): FileImportCompareResponse {
+  const first = responses[0];
+  const pdfRows: PdfRow[] = [];
+  const walletRowsById = new Map<string, WalletRow>();
+  const fileErrors: FileImportError[] = [];
+  let minFrom = first.window.from;
+  let maxTo = first.window.to;
+
+  for (const response of responses) {
+    const indexOffset = pdfRows.length;
+    for (const row of response.pdfRows) {
+      pdfRows.push({ ...row, index: indexOffset + row.index });
+    }
+    for (const walletRow of response.walletRows) {
+      if (!walletRowsById.has(walletRow.id)) {
+        walletRowsById.set(walletRow.id, walletRow);
+      }
+    }
+    fileErrors.push(...response.fileErrors);
+    if (response.window.from < minFrom) minFrom = response.window.from;
+    if (response.window.to > maxTo) maxTo = response.window.to;
+  }
+
+  return {
+    window: { from: minFrom, to: maxTo, issueDate: first.window.issueDate, cutoffDate: first.window.cutoffDate },
+    account: first.account,
+    categories: first.categories.length > 0 ? first.categories : (responses.find((r) => r.categories.length > 0)?.categories ?? []),
+    pdfRows,
+    walletRows: Array.from(walletRowsById.values()),
+    unmappedSections: [],
+    fileErrors,
+  };
+}
+
+export default function FileImportPage() {
+  const [state, setState] = useState<FileImportPageState>({
     accounts: [],
     categories: [],
     selectedAccountId: null,
@@ -51,7 +90,7 @@ export default function CsvWalletImportPage() {
     setState((current) => ({ ...current, selectedAccountId: accountId }));
   };
 
-  const applyComparison = (data: CsvCompareResponse) => {
+  const applyComparison = (data: FileImportCompareResponse) => {
     const nextSelectedRows = Object.fromEntries(data.pdfRows.map((row) => [row.index, row.defaultSelected]));
     const nextCategoryByIndex = Object.fromEntries(data.pdfRows.map((row) => [row.index, null]));
     setState((current) => ({
@@ -64,6 +103,26 @@ export default function CsvWalletImportPage() {
     }));
   };
 
+  const runCompare = async (files: File[], accountId: string) => {
+    const csvFiles = files.filter((f) => !isExcelFile(f));
+    const excelFiles = files.filter(isExcelFile);
+
+    const requests: Promise<Awaited<ReturnType<typeof compareCsv>>>[] = [];
+    if (csvFiles.length > 0) requests.push(compareCsv(csvFiles, accountId));
+    if (excelFiles.length > 0) requests.push(compareExcel(excelFiles, accountId));
+
+    const results = await Promise.all(requests);
+    const failures = results.filter((r) => !r.ok);
+    if (failures.length > 0 && failures.length === results.length) {
+      return { ok: false as const, error: failures[0].ok ? undefined : failures[0].error };
+    }
+
+    const successes = results.filter((r) => r.ok).map((r) => (r.ok ? r.data : undefined)).filter((d): d is FileImportCompareResponse => Boolean(d));
+    const partialErrors: FileImportError[] = failures.map((f) => (f.ok ? undefined : { fileName: '', message: f.error.message })).filter((e): e is FileImportError => Boolean(e));
+    const merged = mergeComparisons(successes);
+    return { ok: true as const, data: { ...merged, fileErrors: [...merged.fileErrors, ...partialErrors] } };
+  };
+
   const handleUpload = async (files: File[]) => {
     if (!state.selectedAccountId) {
       setState((current) => ({ ...current, error: { code: 'WALLET_REJECTED', message: 'Please select a wallet account first.' } }));
@@ -71,10 +130,10 @@ export default function CsvWalletImportPage() {
     }
 
     setState((current) => ({ ...current, loading: true, error: undefined, outcomes: undefined, files }));
-    const result = await compareCsv(files, state.selectedAccountId);
+    const result = await runCompare(files, state.selectedAccountId);
     if (result.ok) {
       applyComparison(result.data);
-    } else {
+    } else if (result.error) {
       setState((current) => ({ ...current, error: result.error, loading: false }));
     }
   };
@@ -187,10 +246,10 @@ export default function CsvWalletImportPage() {
     }
 
     setState((current) => ({ ...current, loading: true, error: undefined, outcomes: undefined }));
-    const result = await compareCsv(state.files, state.selectedAccountId);
+    const result = await runCompare(state.files, state.selectedAccountId);
     if (result.ok) {
       applyComparison(result.data);
-    } else {
+    } else if (result.error) {
       setState((current) => ({ ...current, error: result.error, loading: false }));
     }
   };
@@ -220,9 +279,9 @@ export default function CsvWalletImportPage() {
 
   return (
     <section className="glass-card wallet-page">
-      <h2>CSV Wallet Import</h2>
+      <h2>File Import</h2>
       <p className="form-description">
-        Pick an account and upload BAC CSV statements to compare them with your Wallet records.
+        Pick an account and upload bank statement files (BAC CSV or Promerica Excel) to compare them with your Wallet records.
       </p>
 
       {state.error ? <WalletErrorBanner code={state.error.code} message={state.error.message} onRetry={() => setState((current) => ({ ...current, error: undefined }))} /> : null}
@@ -234,7 +293,7 @@ export default function CsvWalletImportPage() {
       />
 
       {state.selectedAccountId ? (
-        <CsvUploadForm onSubmit={handleUpload} onLocalError={(payload) => setState((current) => ({ ...current, error: { code: 'WALLET_REJECTED', message: payload.message } }))} />
+        <FileUploadForm onSubmit={handleUpload} onLocalError={(payload) => setState((current) => ({ ...current, error: { code: 'WALLET_REJECTED', message: payload.message } }))} />
       ) : null}
 
       {state.loading ? <p className="form-description">Loading…</p> : null}

@@ -87,13 +87,13 @@ export interface SubmitResponse {
   outcomes: SubmitOutcome[];
 }
 
-export interface CsvFileError {
+export interface FileImportError {
   fileName: string;
   message: string;
 }
 
-export interface CsvCompareResponse extends CompareResponse {
-  fileErrors: CsvFileError[];
+export interface FileImportCompareResponse extends CompareResponse {
+  fileErrors: FileImportError[];
 }
 
 export interface WalletErrorResponse {

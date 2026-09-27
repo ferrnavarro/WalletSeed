@@ -7,15 +7,15 @@ using Microsoft.Extensions.Options;
 
 namespace CardStatement.Api.Wallet;
 
-public sealed record CsvFileError(string FileName, string Message);
+public sealed record FileImportError(string FileName, string Message);
 
-public sealed record CsvCompareResult(
+public sealed record FileImportCompareResult(
     CompareResponse Response,
-    IReadOnlyList<CsvFileError> FileErrors);
+    IReadOnlyList<FileImportError> FileErrors);
 
-public sealed class CsvNoValidFilesException : Exception
+public sealed class NoValidImportFilesException : Exception
 {
-    public CsvNoValidFilesException(string message) : base(message) { }
+    public NoValidImportFilesException(string message) : base(message) { }
 }
 
 public sealed class WalletImportService
@@ -131,41 +131,86 @@ public sealed class WalletImportService
         return new CompareResponse(window, new WalletAccountDto(account.Id, account.Name, account.CurrencyCode, account.AccountType), categories.Select(c => new WalletCategoryDto(c.Id, c.Name, c.Color)).ToList(), pdfRowDtos, walletRowDtos, unmapped.ToList());
     }
 
-    public async Task<CsvCompareResult> CompareCsvAsync(IReadOnlyList<(string FileName, Stream Stream)> files, string accountId, CancellationToken ct = default)
+    public Task<FileImportCompareResult> CompareCsvAsync(IReadOnlyList<(string FileName, Stream Stream)> files, string accountId, CancellationToken ct = default)
+        => CompareFilesAsync(files, accountId, ParseCsvFile, ct);
+
+    public Task<FileImportCompareResult> CompareExcelAsync(IReadOnlyList<(string FileName, Stream Stream)> files, string accountId, CancellationToken ct = default)
+        => CompareFilesAsync(files, accountId, ParseExcelFile, ct);
+
+    private delegate List<PdfRowInternal> FileParser(Stream stream, ref int index);
+
+    private static List<PdfRowInternal> ParseCsvFile(Stream stream, ref int index)
+    {
+        var result = BacCsvParser.Parse(stream);
+        var rows = new List<PdfRowInternal>();
+        foreach (var tx in result.Transactions)
+        {
+            // CSV: positive Dollars = expense → Wallet: negative signedAmount
+            rows.Add(new PdfRowInternal(
+                index++,
+                tx.Date,
+                -tx.DollarsAmount,
+                "USD",
+                tx.Description,
+                null,
+                string.Empty,
+                result.CardLast4));
+        }
+
+        return rows;
+    }
+
+    private static List<PdfRowInternal> ParseExcelFile(Stream stream, ref int index)
+    {
+        var result = PromericaExcelParser.Parse(stream);
+        var rows = new List<PdfRowInternal>();
+        foreach (var tx in result.Transactions)
+        {
+            // Promerica: Creditos = money in (income → positive), Debitos = money out (expense → negative)
+            var signedAmount = tx.Creditos > 0 ? tx.Creditos : -tx.Debitos;
+            rows.Add(new PdfRowInternal(
+                index++,
+                tx.Date,
+                signedAmount,
+                "USD",
+                tx.Description,
+                null,
+                string.Empty,
+                tx.CardLast4));
+        }
+
+        return rows;
+    }
+
+    private async Task<FileImportCompareResult> CompareFilesAsync(
+        IReadOnlyList<(string FileName, Stream Stream)> files,
+        string accountId,
+        FileParser parseFile,
+        CancellationToken ct)
     {
         var pdfRows = new List<PdfRowInternal>();
-        var fileErrors = new List<CsvFileError>();
+        var fileErrors = new List<FileImportError>();
         var index = 0;
 
         foreach (var (fileName, stream) in files)
         {
             try
             {
-                var result = BacCsvParser.Parse(stream);
-                foreach (var tx in result.Transactions)
-                {
-                    // CSV: positive Dollars = expense → Wallet: negative signedAmount
-                    pdfRows.Add(new PdfRowInternal(
-                        index++,
-                        tx.Date,
-                        -tx.DollarsAmount,
-                        "USD",
-                        tx.Description,
-                        null,
-                        string.Empty,
-                        result.CardLast4));
-                }
+                pdfRows.AddRange(parseFile(stream, ref index));
             }
-            catch (BacCsvParseException ex)
+            catch (Exception ex) when (ex is BacCsvParseException or PromericaExcelParseException or InvalidDataException)
             {
-                _logger.LogWarning(ex, "Failed to parse CSV file {FileName}", fileName);
-                fileErrors.Add(new CsvFileError(fileName, ex.Message));
+                _logger.LogWarning(ex, "Failed to parse import file {FileName}", fileName);
+                var message = ex is BacCsvParseException or PromericaExcelParseException
+                    ? ex.Message
+                    : "The file could not be read. Please make sure it is a valid, unmodified bank export.";
+                fileErrors.Add(new FileImportError(fileName, message));
             }
         }
 
         if (pdfRows.Count == 0)
         {
-            throw new CsvNoValidFilesException("None of the uploaded CSV files could be parsed.");
+            throw new NoValidImportFilesException("None of the uploaded files could be parsed.");
         }
 
         var minDate = pdfRows.Min(r => r.Date);
@@ -218,7 +263,7 @@ public sealed class WalletImportService
             walletRowDtos,
             Array.Empty<string>());
 
-        return new CsvCompareResult(response, fileErrors);
+        return new FileImportCompareResult(response, fileErrors);
     }
 
     public async Task<SubmitResponse> SubmitAsync(SubmitRequest req, CancellationToken ct = default)

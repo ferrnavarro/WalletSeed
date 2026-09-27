@@ -1,13 +1,14 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import CsvWalletImportPage from '../src/pages/CsvWalletImportPage';
+import FileImportPage from '../src/pages/FileImportPage';
 import * as walletClient from '../src/api/walletClient';
 
 vi.mock('../src/api/walletClient', () => ({
   listAccounts: vi.fn(),
   listCategories: vi.fn(),
   compareCsv: vi.fn(),
+  compareExcel: vi.fn(),
   submit: vi.fn(),
 }));
 
@@ -63,17 +64,39 @@ const csvCompareResponse = {
   fileErrors: [],
 };
 
-async function renderAndUpload() {
-  render(<CsvWalletImportPage />);
+const excelCompareResponse = {
+  ...csvCompareResponse,
+  pdfRows: [
+    {
+      index: 0,
+      date: '2026-08-11',
+      signedAmount: 2126.28,
+      currency: 'USD',
+      description: 'Pago',
+      counterParty: null,
+      cardholderSectionRawName: '',
+      cardLast4: '3326',
+      matchedWalletRecordIds: [],
+      defaultSelected: true,
+      currencyMismatch: false,
+      previewLabelIds: [],
+      previewLabelNames: [],
+    },
+  ],
+};
 
+async function renderPage() {
+  render(<FileImportPage />);
   await waitFor(() => {
     expect(screen.getByRole('option', { name: /main card/i })).toBeInTheDocument();
   });
-
   await userEvent.selectOptions(screen.getByLabelText(/wallet account/i), 'acct-1');
+}
 
+async function renderAndUploadCsv() {
+  await renderPage();
   const file = new File(['dummy csv'], 'estado.csv', { type: 'text/csv' });
-  const input = screen.getByLabelText(/choose csv files/i);
+  const input = screen.getByLabelText(/choose csv or excel files/i);
   await userEvent.upload(input, file);
   await userEvent.click(screen.getByRole('button', { name: /compare with wallet/i }));
 
@@ -82,7 +105,7 @@ async function renderAndUpload() {
   });
 }
 
-describe('CsvWalletImportPage', () => {
+describe('FileImportPage', () => {
   beforeEach(() => {
     vi.mocked(walletClient.listAccounts).mockResolvedValue({
       ok: true,
@@ -93,14 +116,16 @@ describe('CsvWalletImportPage', () => {
       data: [{ id: 'cat-1', name: 'Food', color: null }],
     });
     vi.mocked(walletClient.compareCsv).mockResolvedValue({ ok: true, data: csvCompareResponse });
+    vi.mocked(walletClient.compareExcel).mockResolvedValue({ ok: true, data: excelCompareResponse });
   });
 
-  it('renders merged comparison rows after upload', async () => {
-    await renderAndUpload();
+  it('renders merged comparison rows after CSV upload', async () => {
+    await renderAndUploadCsv();
 
     expect(screen.getByText('DIDDUS -BP- SAN SALVADO')).toBeInTheDocument();
     expect(screen.getByText(/Matches W-/i)).toBeInTheDocument();
     expect(screen.getByText('Selected: 1 of 2')).toBeInTheDocument();
+    expect(vi.mocked(walletClient.compareExcel)).not.toHaveBeenCalled();
     // Import disabled because selected row (index 0) has no category yet
     expect(screen.getByRole('button', { name: /import to wallet/i })).toBeDisabled();
   });
@@ -111,7 +136,7 @@ describe('CsvWalletImportPage', () => {
       data: { outcomes: [{ index: 0, ok: true, walletRecordId: 'w-new', errorMessage: null }] },
     });
 
-    await renderAndUpload();
+    await renderAndUploadCsv();
 
     await userEvent.selectOptions(screen.getByLabelText('Category for row 0'), 'cat-1');
 
@@ -144,10 +169,30 @@ describe('CsvWalletImportPage', () => {
       data: { ...csvCompareResponse, fileErrors: [{ fileName: 'broken.csv', message: 'No valid transactions found in the CSV file.' }] },
     });
 
-    await renderAndUpload();
+    await renderAndUploadCsv();
 
     expect(screen.getByText(/Some files could not be parsed/i)).toBeInTheDocument();
     expect(screen.getByText(/broken.csv/i)).toBeInTheDocument();
     expect(screen.getByText('LA PAMPA ARGENTINA PASEO SAN SALVADO')).toBeInTheDocument();
+  });
+
+  it('uploads mixed CSV and Excel files and merges rows with re-based indices', async () => {
+    await renderPage();
+
+    const csvFile = new File(['dummy csv'], 'estado.csv', { type: 'text/csv' });
+    const excelFile = new File(['dummy excel'], 'promerica.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const input = screen.getByLabelText(/choose csv or excel files/i);
+    await userEvent.upload(input, [csvFile, excelFile]);
+    await userEvent.click(screen.getByRole('button', { name: /compare with wallet/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('LA PAMPA ARGENTINA PASEO SAN SALVADO')).toBeInTheDocument();
+      expect(screen.getByText('Pago')).toBeInTheDocument();
+    });
+
+    // CSV rows (2) + Excel rows (1) merged
+    expect(screen.getByText('Selected: 2 of 3')).toBeInTheDocument();
+    expect(vi.mocked(walletClient.compareCsv)).toHaveBeenCalledWith([csvFile], 'acct-1');
+    expect(vi.mocked(walletClient.compareExcel)).toHaveBeenCalledWith([excelFile], 'acct-1');
   });
 });
