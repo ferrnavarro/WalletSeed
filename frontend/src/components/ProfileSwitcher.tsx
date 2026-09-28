@@ -1,4 +1,3 @@
-import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useProfile } from '../context/ProfileContext';
 
@@ -20,22 +19,30 @@ export default function ProfileSwitcher() {
     );
   }
 
+  const initial = selectedProfile.name
+    ? selectedProfile.name.charAt(0).toUpperCase()
+    : selectedProfile.id.charAt(0).toUpperCase();
+
   return (
     <div className="profile-switcher" aria-label="Profile Switcher">
-      <span className="profile-switcher-icon" aria-hidden="true">👤</span>
-      <span className="profile-switcher-label">Profile:</span>
-      <select
-        className="profile-switcher-select"
-        value={selectedProfile.id}
-        onChange={(e) => selectProfile(e.target.value)}
-        aria-label="Active profile"
-      >
-        {profiles.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
+      <span className="profile-avatar-mini" aria-hidden="true">
+        {initial}
+      </span>
+      <div className="profile-switcher-select-wrap">
+        <select
+          className="profile-switcher-select"
+          value={selectedProfile.id}
+          onChange={(e) => selectProfile(e.target.value)}
+          aria-label="Active profile"
+        >
+          {profiles.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}
+            </option>
+          ))}
+        </select>
+        <span className="profile-switcher-chevron" aria-hidden="true">▾</span>
+      </div>
     </div>
   );
 }
