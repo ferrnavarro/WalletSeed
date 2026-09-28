@@ -8,7 +8,8 @@ public sealed record PdfRowInternal(
     string Description,
     string? CounterParty,
     string CardholderSectionRawName,
-    string CardLast4);
+    string CardLast4,
+    string SourceKind = "card");
 
 public static class DuplicateMatcher
 {

@@ -195,4 +195,69 @@ describe('FileImportPage', () => {
     expect(vi.mocked(walletClient.compareCsv)).toHaveBeenCalledWith([csvFile], 'acct-1');
     expect(vi.mocked(walletClient.compareExcel)).toHaveBeenCalledWith([excelFile], 'acct-1');
   });
+
+  it('labels bank-account rows as an account section instead of a card', async () => {
+    vi.mocked(walletClient.compareExcel).mockResolvedValue({
+      ok: true,
+      data: {
+        ...csvCompareResponse,
+        pdfRows: [
+          {
+            index: 0,
+            date: '2026-09-26',
+            signedAmount: -62.75,
+            currency: 'USD',
+            description: 'Pago De Tarjeta De Credito',
+            counterParty: null,
+            cardholderSectionRawName: '',
+            cardLast4: '2037',
+            matchedWalletRecordIds: [],
+            defaultSelected: true,
+            currencyMismatch: false,
+            previewLabelIds: [],
+            previewLabelNames: [],
+            sourceKind: 'account',
+          },
+          {
+            index: 1,
+            date: '2026-09-16',
+            signedAmount: 700.0,
+            currency: 'USD',
+            description: 'Abono Transfer365 Pagos Recibido',
+            counterParty: null,
+            cardholderSectionRawName: '',
+            cardLast4: '2127',
+            matchedWalletRecordIds: [],
+            defaultSelected: true,
+            currencyMismatch: false,
+            previewLabelIds: [],
+            previewLabelNames: [],
+            sourceKind: 'card',
+          },
+        ],
+      },
+    });
+
+    await renderPage();
+
+    const input = screen.getByLabelText(/choose csv or excel files/i);
+    await userEvent.upload(input, new File(['dummy excel'], 'cuenta.xlsx', { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+    await userEvent.click(screen.getByRole('button', { name: /compare with wallet/i }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Pago De Tarjeta De Credito')).toBeInTheDocument();
+    });
+
+    expect(screen.getByRole('heading', { name: 'Account •••• 2037' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Card last 4: 2127' })).toBeInTheDocument();
+    expect(screen.queryByText('Card last 4: 2037')).not.toBeInTheDocument();
+    expect(screen.getByText('Selected: 2 of 2')).toBeInTheDocument();
+  });
+
+  it('defaults to card labeling when the response has no sourceKind', async () => {
+    await renderAndUploadCsv();
+
+    expect(screen.getByRole('heading', { name: 'Card last 4: 2127' })).toBeInTheDocument();
+    expect(screen.queryByText(/Account ••••/)).not.toBeInTheDocument();
+  });
 });

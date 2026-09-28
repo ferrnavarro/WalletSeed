@@ -269,9 +269,10 @@ export default function FileImportPage() {
   // Display ordering: newest date first. Indices preserved (used for selection/category/submit mapping).
   const sortedWalletRows = comparison ? [...comparison.walletRows].sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))) : [];
 
-  // Group rows by card (last4), newest date first within each section.
+  // Group rows by source (card vs. bank account) and last4, newest date first within each section.
   interface CardSection {
     cardLast4: string;
+    sourceKind: 'card' | 'account';
     labelName: string | null;
     rows: PdfRow[];
   }
@@ -279,9 +280,10 @@ export default function FileImportPage() {
   const cardSections: CardSection[] = [];
   if (comparison) {
     for (const row of comparison.pdfRows) {
-      let section = cardSections.find((s) => s.cardLast4 === row.cardLast4);
+      const sourceKind = row.sourceKind === 'account' ? 'account' : 'card';
+      let section = cardSections.find((s) => s.cardLast4 === row.cardLast4 && s.sourceKind === sourceKind);
       if (!section) {
-        section = { cardLast4: row.cardLast4, labelName: null, rows: [] };
+        section = { cardLast4: row.cardLast4, sourceKind, labelName: null, rows: [] };
         cardSections.push(section);
       }
       section.rows.push(row);
@@ -339,7 +341,7 @@ export default function FileImportPage() {
     <section className="glass-card wallet-page">
       <h2>File Import</h2>
       <p className="form-description">
-        Pick an account and upload bank statement files (BAC CSV, Promerica or Cuscatlán Excel) to compare them with your Wallet records.
+        Pick an account and upload bank statement files (BAC CSV, Promerica or Cuscatlán Excel, including Cuscatlán bank-account exports) to compare them with your Wallet records.
       </p>
 
       {state.error ? <WalletErrorBanner code={state.error.code} message={state.error.message} onRetry={() => setState((current) => ({ ...current, error: undefined }))} /> : null}
@@ -411,7 +413,10 @@ export default function FileImportPage() {
             </div>
 
             {cardSections.map((section) => {
-              const sectionKey = `card-${section.cardLast4}`;
+              const sectionKey = `${section.sourceKind}-${section.cardLast4}`;
+              const sectionTitle = section.sourceKind === 'account'
+                ? `Account •••• ${section.cardLast4}`
+                : `Card last 4: ${section.cardLast4}`;
               const isCollapsed = Boolean(collapsedSections[sectionKey]);
               const allSectionSelected = section.rows.length > 0 && section.rows.every((row) => state.selectedRows[row.index]);
               const someSectionSelected = section.rows.some((row) => state.selectedRows[row.index]);
@@ -441,7 +446,7 @@ export default function FileImportPage() {
                         ▼
                       </span>
                       <div>
-                        <h3 style={{ margin: 0, fontSize: '1.15rem' }}>Card last 4: {section.cardLast4}</h3>
+                        <h3 style={{ margin: 0, fontSize: '1.15rem' }}>{sectionTitle}</h3>
                         {section.labelName ? (
                           <span className="holder-name" style={{ fontSize: '0.9rem', color: 'var(--color-text-muted)', display: 'block', marginTop: '0.1rem' }}>{section.labelName}</span>
                         ) : null}
@@ -456,7 +461,7 @@ export default function FileImportPage() {
                         <input
                           type="checkbox"
                           checked={allSectionSelected}
-                          aria-label={`Toggle all rows for card ${section.cardLast4}`}
+                          aria-label={`Toggle all rows for ${sectionTitle}`}
                           readOnly
                           ref={(el) => {
                             if (el) {
@@ -473,7 +478,7 @@ export default function FileImportPage() {
                           categories={allCategories}
                           value={getCommonCategoryForSection(section)}
                           onChange={(categoryId) => handleApplyCategoryToSection(section, categoryId)}
-                          label={`Category for all in card ${section.cardLast4}`}
+                          label={`Category for all in ${sectionTitle}`}
                           inline={true}
                         />
                       </div>

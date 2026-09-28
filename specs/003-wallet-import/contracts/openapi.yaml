@@ -327,6 +327,16 @@ components:
         cardLast4:
           type: string
           pattern: '^[0-9]{4}$'
+        sourceKind:
+          type: string
+          enum: [card, account]
+          default: card
+          description: |
+            Whether the row came from a credit-card statement ("card", includes
+            BAC CSV/PDF, Promerica and Cuscatlán credit-card exports) or a bank
+            account statement ("account", Cuscatlán account exports). Bank-account
+            rows carry the account number's last 4 digits in `cardLast4` and keep
+            the file's sign convention (negative = money out).
         matchedWalletRecordIds:
           type: array
           items: { type: string }

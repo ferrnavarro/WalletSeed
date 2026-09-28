@@ -170,11 +170,12 @@ public sealed class WalletImportService
                 index++,
                 tx.Date,
                 tx.SignedAmount,
-                "USD",
+                tx.Currency,
                 tx.Description,
                 null,
                 string.Empty,
-                tx.CardLast4));
+                tx.CardLast4,
+                tx.SourceKind));
         }
 
         return rows;
@@ -196,10 +197,10 @@ public sealed class WalletImportService
             {
                 pdfRows.AddRange(parseFile(stream, ref index));
             }
-            catch (Exception ex) when (ex is BacCsvParseException or PromericaExcelParseException or CuscatlanExcelParseException or UnrecognizedExcelLayoutException or InvalidDataException)
+            catch (Exception ex) when (ex is BacCsvParseException or PromericaExcelParseException or CuscatlanExcelParseException or CuscatlanAccountExcelParseException or UnrecognizedExcelLayoutException or InvalidDataException)
             {
                 _logger.LogWarning(ex, "Failed to parse import file {FileName}", fileName);
-                var message = ex is BacCsvParseException or PromericaExcelParseException or CuscatlanExcelParseException or UnrecognizedExcelLayoutException
+                var message = ex is BacCsvParseException or PromericaExcelParseException or CuscatlanExcelParseException or CuscatlanAccountExcelParseException or UnrecognizedExcelLayoutException
                     ? ex.Message
                     : "The file could not be read. Please make sure it is a valid, unmodified bank export.";
                 fileErrors.Add(new FileImportError(fileName, message));
@@ -248,7 +249,8 @@ public sealed class WalletImportService
                 matches[row.Index].Count == 0,
                 !string.Equals(account.CurrencyCode, row.Currency, StringComparison.Ordinal),
                 previewLabelIds,
-                previewLabelNames);
+                previewLabelNames,
+                row.SourceKind);
         }).ToList();
 
         var unmappedCards = _labelMapping.FindUnmappedCards(pdfRows.Select(r => r.CardLast4));

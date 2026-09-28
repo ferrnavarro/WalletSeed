@@ -6,13 +6,16 @@ public enum ExcelBankLayout
 {
     Promerica,
     Cuscatlan,
+    CuscatlanAccount,
 }
 
 public sealed record BankExcelTransaction(
     DateOnly Date,
     string Description,
     decimal SignedAmount,
-    string CardLast4);
+    string CardLast4,
+    string Currency = "USD",
+    string SourceKind = "card");
 
 public sealed class UnrecognizedExcelLayoutException : Exception
 {
@@ -67,7 +70,23 @@ public static class BankExcelParser
                     .ToList();
             }
 
-            throw new UnrecognizedExcelLayoutException("Unrecognized Excel layout. Supported formats: Promerica and Banco Cuscatlán credit card exports.");
+            if (CuscatlanAccountExcelParser.FindHeader(sheet) is not null)
+            {
+                var result = CuscatlanAccountExcelParser.ParseWorkbook(workbook);
+                // Cuscatlán account movements already use the Wallet sign convention
+                // (positive = money in, negative = money out) — pass through unchanged.
+                return result.Transactions
+                    .Select(tx => new BankExcelTransaction(
+                        tx.Date,
+                        tx.Description,
+                        tx.SignedAmount,
+                        tx.AccountLast4,
+                        tx.Currency,
+                        "account"))
+                    .ToList();
+            }
+
+            throw new UnrecognizedExcelLayoutException("Unrecognized Excel layout. Supported formats: Promerica, Banco Cuscatlán credit card and Banco Cuscatlán account exports.");
         }
     }
 }

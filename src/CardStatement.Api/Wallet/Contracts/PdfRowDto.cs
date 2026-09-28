@@ -13,4 +13,5 @@ public sealed record PdfRowDto(
     bool DefaultSelected,
     bool CurrencyMismatch,
     IReadOnlyList<string> PreviewLabelIds,
-    IReadOnlyList<string> PreviewLabelNames);
+    IReadOnlyList<string> PreviewLabelNames,
+    string SourceKind = "card");

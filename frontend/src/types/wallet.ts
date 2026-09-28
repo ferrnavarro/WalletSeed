@@ -38,6 +38,8 @@ export interface PdfRow {
   currencyMismatch: boolean;
   previewLabelIds: string[];
   previewLabelNames: string[];
+  /** "card" for credit-card rows, "account" for bank-account (checking) rows. */
+  sourceKind?: 'card' | 'account';
 }
 
 export interface WalletRow {
