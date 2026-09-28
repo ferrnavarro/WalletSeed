@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using CardStatement.Api.Profiles;
 
 namespace CardStatement.Api.Wallet.Registration;
 
@@ -7,6 +8,10 @@ public static class WalletServiceCollectionExtensions
     public static IServiceCollection AddWalletIntegration(this IServiceCollection services, IConfiguration configuration)
     {
         services.Configure<WalletOptions>(configuration.GetSection("Wallet"));
+
+        services.AddHttpContextAccessor();
+        services.AddSingleton<IProfileService, ProfileService>();
+        services.AddTransient<IProfileContext, ProfileContext>();
 
         services.AddHttpClient<IWalletApiClient, WalletApiClient>((sp, client) =>
         {

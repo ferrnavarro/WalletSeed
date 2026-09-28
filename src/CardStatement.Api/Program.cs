@@ -8,6 +8,7 @@ using CardStatement.Api.Endpoints;
 using CardStatement.Api.Contracts;
 using CardStatement.Api.Wallet;
 using CardStatement.Api.Wallet.Registration;
+using CardStatement.Api.Profiles;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -74,6 +75,7 @@ app.UseCors("frontend");
 
 app.MapExtract();
 app.MapWalletImport();
+app.MapProfiles();
 
 app.MapGet("/", () => "WalletSeed Statement Extraction API is running.");
 

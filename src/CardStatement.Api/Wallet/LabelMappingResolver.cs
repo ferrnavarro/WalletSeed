@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using CardStatement.Api.Profiles;
 
 namespace CardStatement.Api.Wallet;
 
@@ -7,8 +8,15 @@ public sealed class LabelMappingResolver
     private readonly IReadOnlyDictionary<string, string> _mappings;
 
     public LabelMappingResolver(IOptions<WalletOptions> options)
+        : this(options, null)
     {
-        _mappings = options.Value.LabelMapping
+    }
+
+    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
+    public LabelMappingResolver(IOptions<WalletOptions> options, IProfileContext? profileContext)
+    {
+        var rawMappings = profileContext?.GetActiveLabelMapping() ?? options.Value.LabelMapping;
+        _mappings = rawMappings
             .Where(kvp => !string.IsNullOrWhiteSpace(kvp.Key) && !string.IsNullOrWhiteSpace(kvp.Value))
             .GroupBy(kvp => kvp.Key, StringComparer.OrdinalIgnoreCase)
             .Select(g => g.First())

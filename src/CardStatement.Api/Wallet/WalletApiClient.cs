@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Options;
+using CardStatement.Api.Profiles;
 
 namespace CardStatement.Api.Wallet;
 
@@ -10,12 +11,20 @@ public sealed class WalletApiClient : IWalletApiClient
 {
     private readonly HttpClient _httpClient;
     private readonly WalletOptions _options;
+    private readonly IProfileContext? _profileContext;
     private readonly ILogger<WalletApiClient> _logger;
 
     public WalletApiClient(HttpClient httpClient, IOptions<WalletOptions> options, ILogger<WalletApiClient> logger)
+        : this(httpClient, options, null, logger)
+    {
+    }
+
+    [Microsoft.Extensions.DependencyInjection.ActivatorUtilitiesConstructor]
+    public WalletApiClient(HttpClient httpClient, IOptions<WalletOptions> options, IProfileContext? profileContext, ILogger<WalletApiClient> logger)
     {
         _httpClient = httpClient;
         _options = options.Value;
+        _profileContext = profileContext;
         _logger = logger;
         var timeoutSeconds = _options.TimeoutSeconds >= 1 ? _options.TimeoutSeconds : 30;
         if (_options.TimeoutSeconds < 1)
@@ -227,10 +236,16 @@ public sealed class WalletApiClient : IWalletApiClient
             throw new WalletApiException(WalletApiErrorKind.NotConfigured, "Wallet API base URL is not configured.");
         }
 
-        if (string.IsNullOrWhiteSpace(_options.Jwt))
+        var token = GetEffectiveToken();
+        if (string.IsNullOrWhiteSpace(token))
         {
             throw new WalletApiException(WalletApiErrorKind.NotConfigured, "Wallet API JWT is not configured.");
         }
+    }
+
+    private string? GetEffectiveToken()
+    {
+        return _profileContext?.GetActiveWalletApiToken() ?? _options.Jwt;
     }
 
     private async Task<HttpResponseMessage> SendAsync(HttpMethod method, string path, CancellationToken ct, object? payload = null)
@@ -240,7 +255,8 @@ public sealed class WalletApiClient : IWalletApiClient
         var baseUri = _httpClient.BaseAddress ?? new Uri(_options.BaseUrl!, UriKind.Absolute);
         var requestUri = CombineUri(baseUri, path);
         using var request = new HttpRequestMessage(method, requestUri);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", _options.Jwt);
+        var token = GetEffectiveToken();
+        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
         if (payload is not null)
         {
             request.Content = new StringContent(JsonSerializer.Serialize(payload), System.Text.Encoding.UTF8, "application/json");

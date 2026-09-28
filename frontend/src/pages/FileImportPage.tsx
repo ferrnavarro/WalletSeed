@@ -6,6 +6,7 @@ import CategoryDropdown from '../components/CategoryDropdown';
 import SubmitOutcomeList from '../components/SubmitOutcomeList';
 import PerRowPreview from '../components/PerRowPreview';
 import { compareCsv, compareExcel, listAccounts, listCategories, submit } from '../api/walletClient';
+import { useProfile } from '../context/ProfileContext';
 import type { FileImportCompareResponse, WalletAccount, WalletCategory, WalletErrorCode, WalletRow, PdfRow, FileImportError } from '../types/wallet';
 
 interface FileImportPageState {
@@ -62,6 +63,7 @@ function mergeComparisons(responses: FileImportCompareResponse[]): FileImportCom
 }
 
 export default function FileImportPage() {
+  const { selectedProfile } = useProfile();
   const [state, setState] = useState<FileImportPageState>({
     accounts: [],
     categories: [],
@@ -76,6 +78,17 @@ export default function FileImportPage() {
 
   useEffect(() => {
     void (async () => {
+      setState((current) => ({
+        ...current,
+        loading: true,
+        selectedAccountId: null,
+        comparison: undefined,
+        selectedRows: {},
+        categoryByIndex: {},
+        error: undefined,
+        outcomes: undefined,
+        files: undefined,
+      }));
       const accountsResult = await listAccounts();
       const categoriesResult = await listCategories();
       if (accountsResult.ok && categoriesResult.ok) {
@@ -86,7 +99,7 @@ export default function FileImportPage() {
         setState((current) => ({ ...current, error: categoriesResult.error, loading: false }));
       }
     })();
-  }, []);
+  }, [selectedProfile?.id]);
 
   const handleAccountChange = (accountId: string) => {
     setState((current) => ({ ...current, selectedAccountId: accountId }));

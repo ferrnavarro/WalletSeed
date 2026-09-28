@@ -2,6 +2,11 @@ import type { WalletErrorResponse, WalletAccount, WalletCategory, CompareRespons
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:5080';
 
+export function getProfileHeaders(): Record<string, string> {
+  const profileId = localStorage.getItem('wallet_seed_profile_id');
+  return profileId ? { 'X-Profile': profileId } : {};
+}
+
 export type WalletResult<T> =
   | { ok: true; data: T }
   | { ok: false; error: WalletErrorResponse['error']; httpStatus: number };
@@ -27,7 +32,7 @@ export async function listAccounts(): Promise<WalletResult<WalletAccount[]>> {
   try {
     const response = await fetch(`${API_BASE_URL}/api/wallet/accounts`, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', ...getProfileHeaders() },
     });
 
     if (!response.ok) {
@@ -45,7 +50,7 @@ export async function listCategories(): Promise<WalletResult<WalletCategory[]>> 
   try {
     const response = await fetch(`${API_BASE_URL}/api/wallet/categories`, {
       method: 'GET',
-      headers: { Accept: 'application/json' },
+      headers: { Accept: 'application/json', ...getProfileHeaders() },
     });
 
     if (!response.ok) {
@@ -67,6 +72,7 @@ export async function compare(file: File, accountId: string): Promise<WalletResu
 
     const response = await fetch(`${API_BASE_URL}/api/wallet/import/compare`, {
       method: 'POST',
+      headers: { ...getProfileHeaders() },
       body: formData,
     });
 
@@ -90,6 +96,7 @@ async function postCompareFiles(endpoint: string, files: File[], accountId: stri
 
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       method: 'POST',
+      headers: { ...getProfileHeaders() },
       body: formData,
     });
 
@@ -115,7 +122,7 @@ export async function submit(payload: SubmitRequest): Promise<WalletResult<Submi
   try {
     const response = await fetch(`${API_BASE_URL}/api/wallet/import/submit`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...getProfileHeaders() },
       body: JSON.stringify(payload),
     });
 

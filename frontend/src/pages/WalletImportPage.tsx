@@ -6,6 +6,7 @@ import CategoryDropdown from '../components/CategoryDropdown';
 import SubmitOutcomeList from '../components/SubmitOutcomeList';
 import PerRowPreview from '../components/PerRowPreview';
 import { compare, listAccounts, listCategories, submit } from '../api/walletClient';
+import { useProfile } from '../context/ProfileContext';
 import type { CompareResponse, WalletAccount, WalletCategory, WalletErrorCode } from '../types/wallet';
 
 interface WalletImportPageState {
@@ -23,6 +24,7 @@ interface WalletImportPageState {
 }
 
 export default function WalletImportPage() {
+  const { selectedProfile } = useProfile();
   const [state, setState] = useState<WalletImportPageState>({
     accounts: [],
     categories: [],
@@ -37,6 +39,17 @@ export default function WalletImportPage() {
 
   useEffect(() => {
     void (async () => {
+      setState((current) => ({
+        ...current,
+        loading: true,
+        selectedAccountId: null,
+        comparison: undefined,
+        selectedRows: {},
+        categoryByIndex: {},
+        error: undefined,
+        outcomes: undefined,
+        file: undefined,
+      }));
       const accountsResult = await listAccounts();
       const categoriesResult = await listCategories();
       if (accountsResult.ok && categoriesResult.ok) {
@@ -49,7 +62,7 @@ export default function WalletImportPage() {
         }));
       }
     })();
-  }, []);
+  }, [selectedProfile?.id]);
 
   const handleAccountChange = (accountId: string) => {
     setState((current) => ({ ...current, selectedAccountId: accountId }));
